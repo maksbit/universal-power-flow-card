@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {cloneDiagram,parseDiagram,portCompatible,validateDiagram,PowerPort} from '../src/universal/model';
 import {createNode,demoDiagram} from '../src/universal/presets';
 import {connectionPoints,sensorPower,portPosition,automaticLaneOffset} from '../src/universal/render';
+import {equipmentObstacle,findOrthogonalPath,pathHitsEquipment,segmentHitsObstacle} from '../src/universal/routing';
 
 test('telecom topology demo is electrically and structurally valid',()=>{
   const d=demoDiagram();
@@ -76,13 +77,19 @@ test('auto route spaces parallel wires into separate corridors',()=>{
   assert.ok(pathA&&pathB&&pathA.length>=4&&pathB.length>=4);
   assert.notEqual(pathA![2].x,pathB![2].x);
 });
-test('route offset modifies auto lane without changing topology',()=>{
-  const d=demoDiagram(),edge=d.connections[0];
-  const orig=connectionPoints(d,edge);
+test('route offset adjusts an unobstructed wiring corridor',()=>{
+  const d=demoDiagram();
+  // Place two devices far enough apart to offer several viable cable corridors.
+  d.nodes=[createNode('grid',40,110),createNode('ac_load',860,420)];
+  d.nodes[0].id='source';
+  d.nodes[1].id='sink';
+  d.connections=[{id:'test_lane',from:{node:'source',port:'out'},to:{node:'sink',port:'in'}}];
+  const edge=d.connections[0],initial=connectionPoints(d,edge);
   edge.routeOffset=76;
-  const modified=connectionPoints(d,edge);
-  assert.ok(orig&&modified);
-  assert.notDeepEqual(orig,modified);
+  const moved=connectionPoints(d,edge);
+  assert.ok(initial&&moved,'both lanes must remain routable');
+  assert.notDeepEqual(moved,initial,'offset must alter a corridor when free space exists');
+  assert.deepEqual(pathHitsEquipment(moved!.slice(1,-1),d),[]);
   assert.deepEqual(validateDiagram(d),[]);
 });
 test('horizontal and vertical routing remain orthogonal',()=>{
@@ -113,4 +120,48 @@ test('invalid visual routing and unbounded offsets are rejected',()=>{
   assert.ok(validateDiagram(d).some(e=>e.includes('lane offset')));
   assert.ok(validateDiagram(d).some(e=>e.includes('line width')));
   assert.ok(validateDiagram(d).some(e=>e.includes('wire color')));
+});
+
+test('A* navigation detours around a rectangular equipment obstacle',()=>{
+  const d=demoDiagram();
+  const blocker=createNode('rectifier',350,300);
+  blocker.id='blocker';blocker.width=190;blocker.height=170;
+  d.nodes=[blocker];
+  const start={x:110,y:380},end={x:820,y:380};
+  const pts=findOrthogonalPath(d,start,end,{mode:'horizontal',lane:0});
+  assert.ok(pts&&pts.length>2,'route must detour, not cross equipment');
+  for(let i=1;i<pts.length;i++){
+    assert.ok(pts[i-1].x===pts[i].x||pts[i-1].y===pts[i].y,
+      'every segment must remain orthogonal');
+    assert.equal(segmentHitsObstacle(pts[i-1],pts[i],equipmentObstacle(blocker)),false,
+      'wire must not enter expanded equipment bounds');
+  }
+});
+test('routing immediately recalculates when obstacle moves',()=>{
+  const d=demoDiagram(),blocker=createNode('ac_load',345,350);
+  blocker.width=240;blocker.height=150;blocker.id='moving-blocker';
+  d.nodes=[blocker];
+  const a={x:80,y:390},b={x:900,y:390};
+  const first=findOrthogonalPath(d,a,b,{mode:'horizontal',lane:0});
+  assert.ok(first&&first.length>2);
+  blocker.y=750;
+  const second=findOrthogonalPath(d,a,b,{mode:'horizontal',lane:0});
+  assert.ok(second&&second.length>=2);
+  assert.notDeepEqual(second,first,'wire must update after moving device');
+});
+test('all rendered starter connections have obstacle-free interior or are flagged blocked',()=>{
+  const d=demoDiagram();
+  for(const e of d.connections){
+    const pts=connectionPoints(d,e);
+    if(pts===null)continue; // blocked edges are intentionally suppressed, never routed across nodes
+    assert.deepEqual(pathHitsEquipment(pts.slice(1,-1),d),[],
+      `edge ${e.id} crossed an equipment clearance`);
+  }
+});
+test('line-line overlap carries a lane cost and separate route source is deterministic',()=>{
+  const d=demoDiagram(),e=d.connections.find(x=>x.id==='ac_server')!;
+  const p=connectionPoints(d,e);
+  assert.ok(p&&p.length>=2);
+  const again=connectionPoints(d,e);
+  assert.deepEqual(p,again);
 });

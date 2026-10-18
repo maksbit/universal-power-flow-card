@@ -1,5 +1,6 @@
 import { svg } from 'lit';
 import { Point, PowerDiagram, PowerNode, PowerPort, PowerConnection, PortKind } from './model';
+import {findOrthogonalPath, segmentHitsObstacle, equipmentObstacle} from './routing';
 
 export interface HassLike { states: Record<string,{state:string;attributes?:Record<string,unknown>}> }
 export interface CanvasEvents {
@@ -86,26 +87,30 @@ function cleanPoints(points:Point[]):Point[]{
   return points.filter((p,i)=>i===0||Math.abs(p.x-points[i-1].x)>.01||Math.abs(p.y-points[i-1].y)>.01);
 }
 /** Reproducible orthogonal routing; explicit manual waypoints always win. */
-export function connectionPoints(diagram:PowerDiagram,e:PowerConnection):Point[]|null{
-  const na=diagram.nodes.find(n=>n.id===e.from.node), nb=diagram.nodes.find(n=>n.id===e.to.node);
+/** Route edge with collision-safe orthogonal paths, separated from other equipment and wires. */
+export function connectionPoints(diagram:PowerDiagram,e:PowerConnection,occupied:Point[][]=[]):Point[]|null{
+  const na=diagram.nodes.find(n=>n.id===e.from.node),nb=diagram.nodes.find(n=>n.id===e.to.node);
   const pa=na?.ports.find(p=>p.id===e.from.port),pb=nb?.ports.find(p=>p.id===e.to.port);
   if(!na||!nb||!pa||!pb)return null;
   const a=portPosition(na,pa),b=portPosition(nb,pb);
   if(e.waypoints?.length)return cleanPoints([a,...e.waypoints,b]);
   if(e.route==='straight')return [a,b];
   const normalA=portNormal(na,pa),normalB=portNormal(nb,pb);
-  const stub=26;
-  const start={x:a.x+normalA.x*stub,y:a.y+normalA.y*stub};
-  const finish={x:b.x+normalB.x*stub,y:b.y+normalB.y*stub};
-  const mode:RouteAxis=e.route==='horizontal'||e.route==='vertical'?e.route:
+  const extension=37;
+  const first={x:a.x+normalA.x*extension,y:a.y+normalA.y*extension};
+  const last={x:b.x+normalB.x*extension,y:b.y+normalB.y*extension};
+  const mode=e.route==='horizontal'||e.route==='vertical'?e.route:
     Math.abs(normalA.x)>Math.abs(normalA.y)?'horizontal':'vertical';
   const lane=automaticLaneOffset(diagram,e)+(e.routeOffset??0);
-  if(mode==='horizontal'){
-    const mid=(start.x+finish.x)/2+lane;
-    return cleanPoints([a,start,{x:mid,y:start.y},{x:mid,y:finish.y},finish,b]);
-  }
-  const mid=(start.y+finish.y)/2+lane;
-  return cleanPoints([a,start,{x:start.x,y:mid},{x:finish.x,y:mid},finish,b]);
+  const found=findOrthogonalPath(diagram,first,last,{mode,lane,occupied,forceLane:Math.abs(e.routeOffset??0)>0.5});
+  // Never silently draw a wire through equipment if obstacle-aware routing fails.
+  if(!found)return null;
+  const pts=cleanPoints([a,...found,b]);
+  if(pts.slice(1,-1).some((p,i,arr)=>{
+    if(i===0)return false;
+    return diagram.nodes.some(n=>segmentHitsObstacle(arr[i-1],p,equipmentObstacle(n)));
+  }))return null;
+  return pts;
 }
 export function pathOf(points:Point[]):string{
   return points.map((p,i)=>`${i?'L':'M'} ${finite(p.x).toFixed(1)} ${finite(p.y).toFixed(1)}`).join(' ');
@@ -138,8 +143,10 @@ export function renderDiagram(o:CanvasOptions) {
     <rect class="upfc-bg" x="0" y="0" width="${d.width}" height="${d.height}"
       fill="${edit?`url(#${id}-grid)`:'transparent'}"
       @pointerdown=${(ev:PointerEvent)=>events?.backgroundDown?.(ev)}/>
-    ${d.connections.map(e=>{
-      const points=connectionPoints(d,e);if(!points)return svg``;
+    ${(()=>{const routed:Point[][]=[];return d.connections.map(e=>{
+      const points=connectionPoints(d,e,routed);
+      if(!points)return svg`<g class="upfc-unroutable"><title>Cannot route connection ${e.id}: move equipment or adjust port positions</title></g>`;
+      routed.push(points);
       const power=sensorPower(e.powerEntity,o.hass);
       const watts=power===null?null:(e.invert?-power:power);
       const kind=d.nodes.find(n=>n.id===e.from.node)?.ports.find(p=>p.id===e.from.port)?.kind??'signal';
@@ -164,7 +171,7 @@ export function renderDiagram(o:CanvasOptions) {
         ${edit&&o.selectedEdge===e.id? (e.waypoints??[]).map((p,i)=>svg`<circle class="upfc-waypoint" cx="${p.x}" cy="${p.y}" r="9"
           @pointerdown=${(ev:PointerEvent)=>events?.waypointDown?.(ev,e.id,i)}/>`):svg``}
       </g>`;
-    })}
+    });})()}
     ${d.nodes.map(n=>{
       const {width:w,height:h}=size(n), cx=n.x+w/2,cy=n.y+h/2;
       const value=n.stateEntity?o.hass?.states?.[n.stateEntity]?.state:undefined;

@@ -1,6 +1,6 @@
 import {LitElement,html,nothing} from 'lit';
 import {customElement,property,state} from 'lit/decorators.js';
-import {fireEvent,HomeAssistant,LovelaceCardEditor} from 'custom-card-helpers';
+import {HomeAssistant,LovelaceCardEditor} from 'custom-card-helpers';
 import {CardConfig,PowerNode,PowerConnection,PowerPort,PowerDiagram,
   PORT_KINDS,PORT_SIDES,PORT_DIRECTIONS,parseDiagram,cloneDiagram,makeId,portCompatible,
   validateDiagram,Point,PortKind,PortDirection,PortSide} from './model';
@@ -23,6 +23,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   @state() private zoom=1;
   @state() private pan:Point={x:0,y:0};
   @state() private expanded=false;
+  @state() private revision=0;
   private drag?:Drag;
   private readonly instanceId=makeId('editor');
   private readonly moveListener=(ev:PointerEvent)=>this.onPointerMove(ev);
@@ -83,16 +84,24 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   public setConfig(c:CardConfig):void{
     try{
       this.config={...c,diagram:c.diagram?parseDiagram(c.diagram):demoDiagram(),library:c.library??[]};
+      this.revision++;
+      this.requestUpdate();
       this.notice='';
-    }catch(e){this.notice=String(e);this.config={type:'custom:universal-power-flow-card',diagram:demoDiagram()};}
+    }catch(e){this.notice=String(e);this.config={type:'custom:universal-power-flow-card',diagram:demoDiagram()};this.revision++;this.requestUpdate();}
   }
   private get diagram():PowerDiagram{return this.config.diagram??demoDiagram();}
   private get selectedNode():PowerNode|undefined{return this.diagram.nodes.find(n=>n.id===this.nodeId);}
   private get selectedEdge():PowerConnection|undefined{return this.diagram.connections.find(e=>e.id===this.edgeId);}
   private emit():void{
-    // Config is the single source of truth; fire only after meaningful user edits.
-    this.config={...this.config,diagram:cloneDiagram(this.diagram)};
-    fireEvent(this,'config-changed',{config:this.config});
+    // Never expose mutable live arrays to Home Assistant. Publishing a fresh
+    // snapshot and incrementing a reactive revision updates both editor and preview.
+    const next:CardConfig={...this.config,diagram:cloneDiagram(this.diagram)};
+    this.config=next;
+    this.revision++;
+    this.requestUpdate();
+    this.dispatchEvent(new CustomEvent('config-changed',{
+      detail:{config:next},bubbles:true,composed:true
+    }));
   }
   private get svgEl():SVGSVGElement|null{return this.renderRoot.querySelector('svg.upfc-canvas');}
   private at(ev:PointerEvent|DragEvent|MouseEvent):Point{
@@ -237,7 +246,8 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   }
   private bend():void{
     const e=this.selectedEdge;if(!e)return;
-    const points=connectionPoints(this.diagram,e);if(!points?.length)return;
+    const points=connectionPoints(this.diagram,e);
+    if(!points?.length){this.notice='Route is blocked. Move a component or use a different port.';return;}
     if(!e.waypoints?.length){
       // Start from the actual auto route, rather than creating a diagonal shortcut.
       e.waypoints=points.slice(1,-1).map(p=>({...p}));
@@ -388,7 +398,8 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
         <button @click=${()=>{e.waypoints=[];this.emit();}}>Reset auto bends</button>
         <button @click=${()=>this.changeEdge('color',undefined)}>Auto color</button>
       </div>
-      <p class="upfc-subtle">Double-click any wire to add a draggable handle. In full screen, drag blue handles to edit its shape. Wire values are not summed automatically.</p>
+      ${!connectionPoints(this.diagram,e)?html`<p class="upfc-warning">⚠ Automatic routing blocked by equipment. Move equipment or edit port positions; the connection is preserved.</p>`:nothing}
+      <p class="upfc-subtle">Double-click any wire to add a draggable handle. Manual bends override obstacle avoidance; review them for intersections. Wire values are not summed automatically.</p>
       <button class="danger" @click=${()=>this.deleteSelected()}>🗑 Delete connection</button>`;
   }
   private selectItem(raw:string):void{
@@ -397,8 +408,11 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     this.portStart=undefined;
   }
   private renderWorkspace(){
+    // Keep the workspace render dependent on every committed mutation.
+    void this.revision;
     const d=this.diagram,errors=validateDiagram(d);
     const view={x:this.pan.x,y:this.pan.y,width:d.width/this.zoom,height:d.height/this.zoom};
+    const blocked=d.connections.filter(e=>!connectionPoints(d,e)&&!e.waypoints?.length).length;
     return html`
       <div class="upfc-toolbar upfc-primarybar">
         <label>Equipment</label>
@@ -432,6 +446,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
       ${this.portStart?html`<p>Select second port for ${this.portStart.node}/${this.portStart.port}</p>`:nothing}
       ${this.notice?html`<p class="upfc-warning">${this.notice}</p>`:nothing}
       ${errors.length?html`<p class="upfc-warning">Topology errors: ${errors.slice(0,8).join(' • ')}</p>`:nothing}
+      ${blocked?html`<p class="upfc-warning">⚠ ${blocked} connection(s) cannot be routed around equipment. Select the wire to adjust layout or ports.</p>`:nothing}
       <p class="upfc-subtle">Drag devices by their body • click one port then another to connect • double-click wire for bends • Shift+drag background to pan • Ctrl+wheel to zoom • Delete key removes selection</p>
       <div class="upfc-layout">
         <div class="upfc-canvas-shell" @dragover=${(ev:DragEvent)=>ev.preventDefault()}
