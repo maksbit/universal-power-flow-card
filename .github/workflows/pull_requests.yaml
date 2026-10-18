@@ -1,23 +1,32 @@
----
-name: Pull Requests
-
+name: CI - typecheck, unit tests and build
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
+  push:
+    branches: [main, 'feature/**']
   workflow_dispatch:
 jobs:
-  checkVersion:
-    if: github.event_name  == 'pull_request'
-
-    name: Check version updated
+  test:
     runs-on: ubuntu-latest
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v6
-      # Use this GitHub Action
-      - name: Check package version
-        uses: dudo/tag_check@master
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          git_tag_prefix: v
+          node-version: '24'
+      - name: Install
+        run: npm install --legacy-peer-deps --ignore-scripts
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Model tests
+        run: npm test
+      - name: Build distinct HACS resource
+        run: npm run build
+      - name: Assert independently named component
+        run: |
+          test -s dist/universal-power-flow-card.js
+          ! grep -q 'customElements.define("sunsynk-power-flow-card"' dist/universal-power-flow-card.js
+      - name: Upload test bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: universal-power-flow-card-preview
+          path: dist/universal-power-flow-card.js

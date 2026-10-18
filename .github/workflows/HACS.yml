@@ -1,15 +1,18 @@
 name: HACS Action
-
+# This frontend is distributed as a GitHub Release JS asset, not a tracked dist file.
+# HACS validates the latest published release; running before release cannot pass.
 on:
-  push:
-  pull_request:
-
+  workflow_run:
+    workflows: ['Release independent Home Assistant card']
+    types: [completed]
+  workflow_dispatch:
 jobs:
   validate-hacs:
-    runs-on: 'ubuntu-latest'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
     steps:
-      - uses: 'actions/checkout@v6'
-      - name: HACS validation
-        uses: 'hacs/action@main'
+      - uses: actions/checkout@v4
+      - name: HACS validation of published JS
+        uses: hacs/action@main
         with:
-          category: 'plugin'
+          category: plugin

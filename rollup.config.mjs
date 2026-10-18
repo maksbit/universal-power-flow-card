@@ -1,4 +1,3 @@
-import typescript from 'rollup-plugin-typescript2';
 import commonjs from '@rollup/plugin-commonjs';
 import { nodeResolve } from '@rollup/plugin-node-resolve';
 import babel from '@rollup/plugin-babel';
@@ -11,9 +10,9 @@ const plugins = [
   nodeResolve({
     jsnext: true,
     main: true,
+    extensions: ['.mjs', '.js', '.json', '.node', '.ts'],
   }),
   commonjs(),
-  typescript(),
   json(),
   babel({
     exclude: 'node_modules/**',
@@ -21,6 +20,7 @@ const plugins = [
     compact: true,
     extensions: ['.js', '.ts'],
     presets: [
+      '@babel/preset-typescript',
       [
         '@babel/env',
         {
@@ -45,11 +45,11 @@ const plugins = [
 ].filter(Boolean);
 
 export default {
-  input: ['./src/index.ts'],
+  input: ['./src/universal/card.ts'],
   output: {
-    file: 'dist/sunsynk-power-flow-card.js',
+    file: 'dist/universal-power-flow-card.js',
     format: 'esm',
-    name: 'SunsynkPowerFlowCard',
+    name: 'UniversalPowerFlowCard',
     inlineDynamicImports: true,
     sourcemap: true,
   },

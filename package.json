@@ -1,8 +1,8 @@
 {
-  "name": "sunsynk-power-flow-card",
-  "version": "7.3.3",
-  "description": "A customizable Home Assistant card to emulate the Sunsynk System flow that's displayed on the Inverter screen.",
-  "main": "sunsynk-power-flow-card.js",
+  "name": "universal-power-flow-card",
+  "version": "0.1.0",
+  "description": "Universal AC/DC power topology designer and animated Home Assistant Lovelace card",
+  "main": "dist/universal-power-flow-card.js",
   "prettier": {
     "singleQuote": true,
     "jsxSingleQuote": false,
@@ -20,18 +20,20 @@
     "build": "rollup -c --bundleConfigAsCjs",
     "watch": "rollup -c --watch",
     "docs-build": "sphinx-autobuild docs docs/_build/html",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/slipx06/sunsynk-power-flow-card.git"
+    "url": "git+https://github.com/maksbit/universal-power-flow-card.git"
   },
   "author": "slipx06 <slipx06@users.noreply.github.com>",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/slipx06/sunsynk-power-flow-card/issues"
+    "url": "https://github.com/maksbit/universal-power-flow-card/issues"
   },
-  "homepage": "https://github.com/slipx06/sunsynk-power-flow-card#readme",
+  "homepage": "https://github.com/maksbit/universal-power-flow-card#readme",
   "dependencies": {
     "@lit-labs/scoped-registry-mixin": "^1.0.3",
     "custom-card-helpers": "^1.9.0",
@@ -68,7 +70,9 @@
     "rollup-plugin-serve": "^3.0.0",
     "rollup-plugin-typescript2": "^0.36.0",
     "typescript": "^5.4.5",
-    "typescript-eslint": "^8.1.0"
+    "typescript-eslint": "^8.1.0",
+    "tsx": "^4.20.5",
+    "@babel/preset-typescript": "^7.27.1"
   },
   "lint-staged": {
     "*.{js,ts,json,md,yml,yaml}": [
