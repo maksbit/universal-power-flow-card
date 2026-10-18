@@ -36,7 +36,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     super.disconnectedCallback();
     window.removeEventListener('keydown',this.keyboardListener);
     this.endDrag();
-    this.renderRoot.querySelector('dialog')?.close();
+    this.renderRoot.querySelector<HTMLDialogElement>('dialog')?.close();
   }
   private onKeyDown(ev:KeyboardEvent):void{
     if(ev.key==='Escape' && this.expanded){this.closeExpanded();return;}
@@ -51,12 +51,12 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private async openExpanded():Promise<void>{
     this.expanded=true;
     await this.updateComplete;
-    const dialog=this.renderRoot.querySelector('dialog.upfc-dialog');
+    const dialog=this.renderRoot.querySelector<HTMLDialogElement>('dialog.upfc-dialog');
     if(dialog && !dialog.open)dialog.showModal();
   }
   private closeExpanded():void{
     this.endDrag();
-    this.renderRoot.querySelector('dialog.upfc-dialog')?.close();
+    this.renderRoot.querySelector<HTMLDialogElement>('dialog.upfc-dialog')?.close();
     this.expanded=false;
   }
   private startDrag(next:Drag):void{
