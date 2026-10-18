@@ -71,7 +71,8 @@
     "rollup-plugin-typescript2": "^0.36.0",
     "typescript": "^5.4.5",
     "typescript-eslint": "^8.1.0",
-    "tsx": "^4.20.5"
+    "tsx": "^4.20.5",
+    "@babel/preset-typescript": "^7.27.1"
   },
   "lint-staged": {
     "*.{js,ts,json,md,yml,yaml}": [
