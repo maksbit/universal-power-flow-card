@@ -1,6 +1,6 @@
 {
-  "name": "Sunsynk Power Flow Card",
+  "name": "Universal Power Flow Card",
   "render_readme": true,
   "content_in_root": false,
-  "filename": "sunsynk-power-flow-card.js"
+  "filename": "universal-power-flow-card.js"
 }

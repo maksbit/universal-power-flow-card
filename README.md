@@ -1,84 +1,62 @@
-# Sunsynk Power Flow Card
+# Universal Power Flow Card
 
-An animated Home Assistant card to emulate the power flow that's shown on the Sunsynk Inverter screen. You can use this to display data from many inverters e.g. Sunsynk, Deye, Solis, Lux, FoxESS, Goodwe, Huawei etc as long as you have the required sensor data. See the [wiki](https://github.com/slipx06/sunsynk-power-flow-card/wiki) for integration methods and examples.
+**Visual topology designer and animated electrical-power dashboard for Home Assistant.**
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=slipx06&repository=sunsynk-power-flow-card&category=plugin)
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/slipx06/sunsynk-power-flow-card?style=for-the-badge)
-[![Community Forum](https://img.shields.io/badge/community-forum-brightgreen.svg?style=for-the-badge)](https://community.home-assistant.io/t/sunsynk-deye-inverter-power-flow-card/562933/1)
-<a href="https://www.buymeacoffee.com/slipx" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="28" width="120"></a>
+Developed in [maksbit/universal-power-flow-card](https://github.com/maksbit/universal-power-flow-card), independently from the original Sunsynk Power Flow Card. The new Lovelace element is `custom:universal-power-flow-card`, and the JavaScript resource is `universal-power-flow-card.js`. Both cards can coexist on one Home Assistant dashboard.
 
-## Documentation
+## Getting started
 
-Refer to [https://slipx06.github.io/sunsynk-power-flow-card/index.html](https://slipx06.github.io/sunsynk-power-flow-card/index.html)
+A preview release will be published when the CI and Home Assistant checks pass. Add this repository as a HACS custom frontend repository, install the **Universal Power Flow Card** release and add it to a dashboard, selecting the visual editor.
 
-## Features
+To test an unreleased build, use the JS artifact produced by the **CI - typecheck, unit tests and build** workflow, save it to `/config/www/universal-power-flow-card/universal-power-flow-card.js`, add **JavaScript module** dashboard resource `/local/universal-power-flow-card/universal-power-flow-card.js`, then add:
 
-- Option to switch between three card styles: `compact`, `lite` or `full`.
-- Wide view for 16:9 layout.
-- Animated power flow based on positive/negative/zero sensor values with configurable dynamic speed. (Supports inverted battery, AUX and grid power).
-- Dynamic battery image based on SOC.
-- Grid connected status.
-- Configurable battery size and shutdown SOC to calculate and display remaining battery runtime based on current battery usage and system time slot setting i.e. SOC, Grid Charge. Can be toggled off.
-- Daily Totals that can be toggled on or off.
-- Hide all solar data if not installed or specify number of mppts in use. Set custom MPPT labels.
-- "Use Timer" setting and "Energy Pattern" setting (Priority Load or Priority Battery) shown as dynamic icons, with the ability to hide if not required. If setup as switches can be toggled by clicking on the card.
-- Card can be scaled by setting the card_height and card_width attributes.
-- AUX and Non-essential can be hidden from the full card or assigned configurable labels.
-- Customisable - Change colours and images.
-- Most entities can be clicked to show more-info dialog.
-- Optional data points include self sufficiency and ratio percentages, battery temperature, AC and DC temperature.
-- Display additional non-essential, essential and AUX loads.
-- Display energy cost per kWh and solar sell status.
-- Select your inverter model for custom inverter status and battery status messages i.e. Sunsynk, Lux, Goodwe, Solis.
+```yaml
+type: custom:universal-power-flow-card
+title: Telecom power infrastructure
+```
 
-## Screenshots
+The card initially shows the **example topology** with no animated values; telemetry is not fabricated. Open the visual editor to bind each edge to its power sensor.
 
-_Compact Version_
+## Visual editor
 
-![image](https://github.com/slipx06/sunsynk-power-flow-card/assets/7227275/b1e437a8-d1f7-4d6a-a549-1cc908950002)
-![image](https://github.com/slipx06/sunsynk-power-flow-card/assets/7227275/49c499c5-9d2b-43e7-8f5d-5b9da5e07fb9)
+- Drag equipment from the palette onto the canvas or use **+ Add**.
+- Move devices by dragging them; Shift+drag an empty background to pan; Ctrl+wheel or +/- buttons to zoom.
+- Click the **source port**, then the **target port** to connect. AC, DC positive, DC negative, PV and control/signal cannot be mixed.
+- Select a connection to bind a Home Assistant power entity (W/kW/MW), invert its sign, add or drag bend points, or use automatic orthogonal routing.
+- Select equipment to edit its name, icon (`mdi:...`), size, scale, rotation, optional status/SOC entity, and electrical ports.
+- Use **Save as component** to store customized equipment templates in this card's configuration.
+- Export/import JSON to reuse layouts, including their custom library. Import validates topology.
+- Configuration changes are persisted by Home Assistant's standard Lovelace `config-changed` editor event; edit via dashboard configuration mode. Export is recommended for backup.
 
-_Lite Version_
+## Electrical semantics
 
-![image](https://github.com/slipx06/sunsynk-power-flow-card/assets/7227275/d25c621c-2607-445f-b3a3-865930387a05)
-![image](https://github.com/slipx06/sunsynk-power-flow-card/assets/7227275/5a9078ee-7375-4f1c-affa-6fe291d62f8a)
-![image](https://github.com/slipx06/sunsynk-power-flow-card/assets/7227275/73d6fae3-3e6b-4891-acc2-deb29156cd2d)
-![image](https://github.com/slipx06/sunsynk-power-flow-card/assets/7227275/54ae290d-aa5c-428e-8a00-2a75e11c2de8)
+| Wire | Port kind | Appearance |
+|---|---|---|
+| AC | `ac` | amber |
+| 48V DC positive | `dc+` | red |
+| 48V DC negative | `dc-` | dark |
+| Photovoltaic +/- | `pv+`, `pv-` | gold / gray |
+| Generator start / signalling | `signal` | blue dashed |
 
-_Full Version_
+A positive power-sensor reading animates **from source to target**, a negative reading reverses direction. Use **Invert flow direction** when a meter has the opposite sign convention. Zero/unknown/unavailable readings do not animate; **unknown is never silently interpreted as zero**. Circuit power must be measured independently: sums of common-bus, inverter and rectifier powers can double count recirculated energy.
 
-![image](https://github.com/slipx06/sunsynk-power-flow-card/assets/7227275/fdcce257-e7b5-4874-926c-17e911e83eba)
-![image](https://github.com/slipx06/sunsynk-power-flow-card/assets/7227275/12af5b02-c456-4685-a50f-bd0044b9e9b0)
+Port compatibility checks are **diagramming safeguards**, not full electrical-design verification; they do not enforce voltage ratings, phases, earthing or protection coordination. The visual card does not control electrical equipment.
 
-_Wide Full Version (2 batteries)_
+## Example: dual-Deye telecom site
 
-![{4D3F02C5-3DC5-4995-AD99-7478E6DE5557}](https://github.com/user-attachments/assets/af169593-c73f-469e-bc8b-62fb72b8af43)
+The starter diagram illustrates external GRID → Deye #1 GRID; generator AC → Deye #1 GEN with a separate start signal; Deye #1 LOAD → AC distribution, AC loads and AC/DC rectifier; rectifier DC+/− → shared 48V bus; battery DC+/− and both Deye BAT+/− ports → **the same bus**; Deye #2 LOAD → separate off-grid AC load; telecom DC servers connected to the DC bus through DC+/− connections. The DC bus is **not an AC load**. Values stay unavailable until sensors are configured.
 
-_Wide Lite Version (2 batteries)_
+## Technology
 
-![{F448EFB0-5549-470B-BAE0-13F9DF2E3769}](https://github.com/user-attachments/assets/100c80d2-1d5f-46f4-ae83-f48c923cadf6)
+TypeScript, Lit 3, SVG with SMIL animateMotion, Rollup, browser-native pointer events, structured JSON schema (version 1), Home Assistant Lovelace config-changed event. No backend service is required.
 
-_Wide Compact Version (2 batteries)_
+```sh
+npm install --legacy-peer-deps
+npm run typecheck
+npm test
+npm run build
+```
 
-![{B8CBC3C3-0E0A-4E37-B489-C41CB8EA4E7E}](https://github.com/user-attachments/assets/1cd5508d-33a0-4df9-9665-5a4d9e753178)
+## Licensing / upstream attribution
 
-## Installation
-
-The card can be installed via HACS (recommended) or manually.
-
-### Installation using HACS
-
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-blue.svg)](https://github.com/custom-components/hacs)
-
-1. Install HACS.
-2. Search & Install sunsynk-power-flow-card or click the button below.
-
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=slipx06&repository=sunsynk-power-flow-card&category=plugin)
-
-### Manual Installation
-
-1. Create a new directory under `www` and name it `sunsynk-power-flow-card` e.g `www/sunsynk-power-flow-card/`.
-2. Copy the `sunsynk-power-flow-card.js` into the directory.
-3. Add the resource to your Dashboard. You can append the filename with a `?ver=x` and increment x each time you download a new version to force a reload and avoid using a cached version. It is also a good idea to clear your browser cache.
-
-![image](https://user-images.githubusercontent.com/7227275/235441241-93ab0c7d-341d-428f-8ca8-60ec932dde2d.png)
+This repository derives from [slipx06/sunsynk-power-flow-card](https://github.com/slipx06/sunsynk-power-flow-card), originally authored by slipx06. The original MIT LICENSE and copyright notice are preserved. Independent universal-editor functionality is developed in this repository.

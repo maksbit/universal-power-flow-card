@@ -45,11 +45,11 @@ const plugins = [
 ].filter(Boolean);
 
 export default {
-  input: ['./src/index.ts'],
+  input: ['./src/universal/card.ts'],
   output: {
-    file: 'dist/sunsynk-power-flow-card.js',
+    file: 'dist/universal-power-flow-card.js',
     format: 'esm',
-    name: 'SunsynkPowerFlowCard',
+    name: 'UniversalPowerFlowCard',
     inlineDynamicImports: true,
     sourcemap: true,
   },
