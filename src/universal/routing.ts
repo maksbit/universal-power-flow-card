@@ -49,8 +49,8 @@ export function pathHitsEquipment(path:Point[],diagram:PowerDiagram,clearance=15
   return boxes.filter(box=>path.slice(1).some((p,i)=>segmentHitsObstacle(path[i],p,box))).map(box=>box.id);
 }
 function distinct(nums:number[]):number[]{
-  const sorted=nums.filter(Number.isFinite).map(n=>Math.round(n*100)/100).sort((a,b)=>a-b);
-  return sorted.filter((n,i)=>i===0||Math.abs(n-sorted[i-1])>0.1);
+  const sorted=nums.filter(Number.isFinite).sort((a,b)=>a-b);
+  return sorted.filter((n,i)=>i===0||Math.abs(n-sorted[i-1])>0.00001);
 }
 function simplify(pts:Point[]):Point[]{
   const output:Point[]=[];
@@ -112,6 +112,26 @@ export function findOrthogonalPath(diagram:PowerDiagram,start:Point,end:Point,op
   if(boxes.some(r=>inRect(start,r)||inRect(end,r)))return null;
   const midX=(start.x+end.x)/2,midY=(start.y+end.y)/2;
   const guide=options.mode==='horizontal'?midX+options.lane:midY+options.lane;
+  // A user-adjusted corridor is a routing constraint, not merely a weak preference.
+  // Try passing through the requested lane, unless an obstacle or unreasonable
+  // detour makes it impossible. Subroutes still use the collision-safe A* graph.
+  if(Math.abs(options.lane)>0.5){
+    const guidePoint=options.mode==='horizontal'?{x:guide,y:midY}:{x:midX,y:guide};
+    if(guidePoint.x>=bounds.left&&guidePoint.x<=bounds.right&&
+       guidePoint.y>=bounds.top&&guidePoint.y<=bounds.bottom&&
+       !boxes.some(r=>inRect(guidePoint,r))){
+      const neutral:RouteOptions={...options,lane:0};
+      const first=findOrthogonalPath(diagram,start,guidePoint,neutral);
+      const second=findOrthogonalPath(diagram,guidePoint,end,neutral);
+      if(first&&second){
+        const combined=simplify([...first,...second.slice(1)]);
+        const length=(points:Point[])=>points.slice(1).reduce((sum,p,i)=>
+          sum+Math.abs(p.x-points[i].x)+Math.abs(p.y-points[i].y),0);
+        if(length(combined)<(Math.abs(start.x-end.x)+Math.abs(start.y-end.y)+150)*2.6)
+          return combined;
+      }
+    }
+  }
   const xs=distinct([start.x,end.x,midX,options.mode==='horizontal'?guide:midX,
     bounds.left,bounds.right,...boxes.flatMap(r=>[r.left-1,r.right+1])]);
   const ys=distinct([start.y,end.y,midY,options.mode==='vertical'?guide:midY,
