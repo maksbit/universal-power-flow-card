@@ -25,7 +25,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: test "v${{ steps.version.outputs.version }}" = "$GITHUB_REF_NAME"
       - name: Publish HACS-compatible JS asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: Universal Power Flow Card v${{ steps.version.outputs.version }}
