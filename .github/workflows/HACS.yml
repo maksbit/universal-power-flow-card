@@ -6,12 +6,20 @@ on:
     workflows: ['Release independent Home Assistant card']
     types: [completed]
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   validate-hacs:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify Docker on Proxmox self-hosted runner
+        run: |
+          echo "runner_name=${RUNNER_NAME}; host=$(hostname)"
+          docker info --format 'Docker server: {{.ServerVersion}}'
       - name: HACS validation of published JS
         uses: hacs/action@main
         with:
