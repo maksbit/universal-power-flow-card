@@ -5,11 +5,22 @@ on:
   push:
     branches: [main, 'feature/**']
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Never execute untrusted fork PR code on a persistent self-hosted runner.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Show runner identity
+        run: |
+          echo "runner_name=${RUNNER_NAME}"
+          echo "runner_os=${RUNNER_OS}"
+          echo "host=$(hostname)"
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
