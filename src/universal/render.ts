@@ -102,7 +102,7 @@ export function connectionPoints(diagram:PowerDiagram,e:PowerConnection,occupied
   const mode=e.route==='horizontal'||e.route==='vertical'?e.route:
     Math.abs(normalA.x)>Math.abs(normalA.y)?'horizontal':'vertical';
   const lane=automaticLaneOffset(diagram,e)+(e.routeOffset??0);
-  const found=findOrthogonalPath(diagram,first,last,{mode,lane,occupied});
+  const found=findOrthogonalPath(diagram,first,last,{mode,lane,occupied,forceLane:Math.abs(e.routeOffset??0)>0.5});
   // Never silently draw a wire through equipment if obstacle-aware routing fails.
   if(!found)return null;
   const pts=cleanPoints([a,...found,b]);
