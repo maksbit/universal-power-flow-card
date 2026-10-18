@@ -30,6 +30,14 @@ export interface PowerConnection {
   powerEntity?: string;
   invert?: boolean;
   waypoints?: Point[];
+  /** Orthogonal routing preference; custom waypoints take precedence. */
+  route?: 'auto' | 'horizontal' | 'vertical' | 'straight';
+  /** Relative corridor displacement in SVG units. */
+  routeOffset?: number;
+  /** Optional per-wire visual controls (do not affect measurements). */
+  color?: string;
+  lineWidth?: number;
+  animationSpeed?: number;
   name?: string;
 }
 export interface PowerDiagram {
@@ -107,6 +115,16 @@ export function validateDiagram(d: PowerDiagram): string[] {
     const pair = [p1,p2].sort().join('|');
     if (pairs.has(pair)) errors.push(`Duplicate connection: ${e.id}`);
     pairs.add(pair);
+    if (e.route !== undefined && !['auto','horizontal','vertical','straight'].includes(e.route))
+      errors.push(`Invalid routing mode: ${e.id}`);
+    if (e.routeOffset !== undefined && (!validNumber(e.routeOffset) || Math.abs(e.routeOffset)>600))
+      errors.push(`Invalid lane offset: ${e.id}`);
+    if (e.lineWidth !== undefined && (!validNumber(e.lineWidth) || e.lineWidth<1 || e.lineWidth>12))
+      errors.push(`Invalid line width: ${e.id}`);
+    if (e.animationSpeed !== undefined && (!validNumber(e.animationSpeed) || e.animationSpeed<0.25 || e.animationSpeed>8))
+      errors.push(`Invalid flow speed: ${e.id}`);
+    if (e.color !== undefined && !/^#[0-9a-fA-F]{6}$/.test(e.color))
+      errors.push(`Invalid wire color: ${e.id}`);
     if (e.waypoints !== undefined && (!Array.isArray(e.waypoints) || e.waypoints.length > 30 ||
       e.waypoints.some(p=>!validNumber(p.x) || !validNumber(p.y) || Math.abs(p.x)>10000 || Math.abs(p.y)>10000)))
       errors.push(`Invalid waypoints: ${e.id}`);

@@ -9,7 +9,7 @@ import {renderDiagram,CanvasEvents,connectionPoints} from './render';
 import {universalStyles} from './styles';
 
 type Drag = {kind:'node'|'waypoint'|'pan';id?:string;index?:number;
-  start:Point;origin:Point};
+  start:Point;origin:Point;moved?:boolean};
 @customElement('universal-power-flow-card-editor')
 export class UniversalPowerFlowEditor extends LitElement implements LovelaceCardEditor{
   static styles=universalStyles;
@@ -22,16 +22,62 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   @state() private notice='';
   @state() private zoom=1;
   @state() private pan:Point={x:0,y:0};
+  @state() private expanded=false;
   private drag?:Drag;
   private readonly instanceId=makeId('editor');
+  private readonly moveListener=(ev:PointerEvent)=>this.onPointerMove(ev);
+  private readonly upListener=(ev:PointerEvent)=>this.onPointerUp(ev);
+  private readonly keyboardListener=(ev:KeyboardEvent)=>this.onKeyDown(ev);
+  public connectedCallback():void{
+    super.connectedCallback();
+    window.addEventListener('keydown',this.keyboardListener);
+  }
+  public disconnectedCallback():void{
+    super.disconnectedCallback();
+    window.removeEventListener('keydown',this.keyboardListener);
+    this.endDrag();
+    this.renderRoot.querySelector<HTMLDialogElement>('dialog')?.close();
+  }
+  private onKeyDown(ev:KeyboardEvent):void{
+    if(ev.key==='Escape' && this.expanded){this.closeExpanded();return;}
+    if(ev.key!=='Delete'&&ev.key!=='Backspace')return;
+    if(!this.expanded && !this.matches(':focus-within'))return;
+    const target=ev.target as HTMLElement|null;
+    if(target?.closest('input,textarea,select,[contenteditable=true]')||
+       this.shadowRoot?.activeElement?.closest('input,textarea,select,[contenteditable=true]'))return;
+    if(!this.nodeId&&!this.edgeId)return;
+    ev.preventDefault();this.deleteSelected();
+  }
+  private async openExpanded():Promise<void>{
+    this.expanded=true;
+    await this.updateComplete;
+    const dialog=this.renderRoot.querySelector<HTMLDialogElement>('dialog.upfc-dialog');
+    if(dialog && !dialog.open)dialog.showModal();
+  }
+  private closeExpanded():void{
+    this.endDrag();
+    this.renderRoot.querySelector<HTMLDialogElement>('dialog.upfc-dialog')?.close();
+    this.expanded=false;
+  }
+  private startDrag(next:Drag):void{
+    this.drag=next;
+    window.addEventListener('pointermove',this.moveListener,{capture:true});
+    window.addEventListener('pointerup',this.upListener,{capture:true});
+    window.addEventListener('pointercancel',this.upListener,{capture:true});
+  }
+  private endDrag():void{
+    this.drag=undefined;
+    window.removeEventListener('pointermove',this.moveListener,true);
+    window.removeEventListener('pointerup',this.upListener,true);
+    window.removeEventListener('pointercancel',this.upListener,true);
+  }
   private readonly canvasEvents:CanvasEvents={
     nodeDown:(ev,id)=>this.onNodeDown(ev,id),
     portDown:(ev,node,port)=>this.onPortDown(ev,node,port),
     edgeClick:id=>{this.nodeId='';this.edgeId=id;this.portStart=undefined;},
+    edgeDoubleClick:(ev,id)=>this.onEdgeDoubleClick(ev,id),
     waypointDown:(ev,id,index)=>this.onWaypointDown(ev,id,index),
     backgroundDown:ev=>this.onBackgroundDown(ev),
-    pointerMove:ev=>this.onPointerMove(ev),
-    pointerUp:ev=>this.onPointerUp(ev),
     wheel:ev=>{if(ev.ctrlKey){ev.preventDefault();this.setZoom(this.zoom*(ev.deltaY<0?1.15:0.87));}}
   };
   public setConfig(c:CardConfig):void{
@@ -49,7 +95,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     fireEvent(this,'config-changed',{config:this.config});
   }
   private get svgEl():SVGSVGElement|null{return this.renderRoot.querySelector('svg.upfc-canvas');}
-  private at(ev:PointerEvent|DragEvent):Point{
+  private at(ev:PointerEvent|DragEvent|MouseEvent):Point{
     const el=this.svgEl;if(!el)return{x:0,y:0};
     const mat=el.getScreenCTM();
     if(!mat)return{x:0,y:0};
@@ -61,23 +107,20 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     ev.preventDefault();ev.stopPropagation();
     this.nodeId=id;this.edgeId='';this.portStart=undefined;
     const n=this.selectedNode;if(!n)return;
-    this.drag={kind:'node',id,start:this.at(ev),origin:{x:n.x,y:n.y}};
-    this.svgEl?.setPointerCapture?.(ev.pointerId);
+    this.startDrag({kind:'node',id,start:this.at(ev),origin:{x:n.x,y:n.y}});
   }
   private onWaypointDown(ev:PointerEvent,id:string,index:number):void{
     ev.preventDefault();ev.stopPropagation();
     this.edgeId=id;this.nodeId='';
     const p=this.diagram.connections.find(e=>e.id===id)?.waypoints?.[index];
     if(!p)return;
-    this.drag={kind:'waypoint',id,index,start:this.at(ev),origin:{...p}};
-    this.svgEl?.setPointerCapture?.(ev.pointerId);
+    this.startDrag({kind:'waypoint',id,index,start:this.at(ev),origin:{...p}});
   }
   private onBackgroundDown(ev:PointerEvent):void{
     if(ev.button!==0)return;
     if(ev.shiftKey){
       ev.preventDefault();
-      this.drag={kind:'pan',start:{x:ev.clientX,y:ev.clientY},origin:{...this.pan}};
-      this.svgEl?.setPointerCapture?.(ev.pointerId);
+      this.startDrag({kind:'pan',start:{x:ev.clientX,y:ev.clientY},origin:{...this.pan}});
     }else{this.nodeId='';this.edgeId='';this.portStart=undefined;}
   }
   private onPointerMove(ev:PointerEvent):void{
@@ -93,19 +136,24 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     const p=this.at(ev),dx=p.x-this.drag.start.x,dy=p.y-this.drag.start.y;
     if(this.drag.kind==='node'){
       const n=this.diagram.nodes.find(x=>x.id===this.drag?.id);
-      if(n){n.x=this.snap(this.drag.origin.x+dx);n.y=this.snap(this.drag.origin.y+dy);this.requestUpdate();}
+      if(n){
+        const x=this.snap(this.drag.origin.x+dx),y=this.snap(this.drag.origin.y+dy);
+        if(n.x!==x||n.y!==y){n.x=x;n.y=y;this.drag.moved=true;this.requestUpdate();}
+      }
     }else{
       const e=this.diagram.connections.find(x=>x.id===this.drag?.id),index=this.drag.index??-1;
       if(e?.waypoints?.[index]){
-        e.waypoints[index]={x:this.snap(this.drag.origin.x+dx),y:this.snap(this.drag.origin.y+dy)};
-        this.requestUpdate();
+        const x=this.snap(this.drag.origin.x+dx),y=this.snap(this.drag.origin.y+dy);
+        if(e.waypoints[index].x!==x||e.waypoints[index].y!==y){
+          e.waypoints[index]={x,y};this.drag.moved=true;this.requestUpdate();
+        }
       }
     }
   }
   private onPointerUp(_ev:PointerEvent):void{
     if(!this.drag)return;
-    const hasTopologyChange=this.drag.kind!=='pan';
-    this.drag=undefined;
+    const hasTopologyChange=this.drag.kind!=='pan'&&!!this.drag.moved;
+    this.endDrag();
     if(hasTopologyChange)this.emit();
   }
   private onPortDown(ev:PointerEvent,node:string,port:string):void{
@@ -176,19 +224,48 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private deleteSelected():void{
     if(this.nodeId){
       const id=this.nodeId;
+      const count=this.diagram.connections.filter(e=>e.from.node===id||e.to.node===id).length;
+      if(count>0 && !window.confirm(`Delete equipment and ${count} connected wires?`))return;
       this.diagram.nodes=this.diagram.nodes.filter(n=>n.id!==id);
       this.diagram.connections=this.diagram.connections.filter(e=>e.from.node!==id&&e.to.node!==id);
       this.nodeId='';
     }else if(this.edgeId){
       this.diagram.connections=this.diagram.connections.filter(e=>e.id!==this.edgeId);this.edgeId='';
     }else return;
+    this.notice='Selected item deleted';
     this.emit();
   }
   private bend():void{
     const e=this.selectedEdge;if(!e)return;
     const points=connectionPoints(this.diagram,e);if(!points?.length)return;
-    const a=points[0],b=points[points.length-1];
-    e.waypoints=[...(e.waypoints??[]),{x:this.snap((a.x+b.x)/2),y:this.snap((a.y+b.y)/2)}];
+    if(!e.waypoints?.length){
+      // Start from the actual auto route, rather than creating a diagonal shortcut.
+      e.waypoints=points.slice(1,-1).map(p=>({...p}));
+      this.notice='Bends are now editable: drag blue handles directly on the wire';
+    }else{
+      const a=points[0],b=points[points.length-1];
+      e.waypoints.push({x:this.snap((a.x+b.x)/2),y:this.snap((a.y+b.y)/2)});
+    }
+    this.emit();
+  }
+  private onEdgeDoubleClick(ev:MouseEvent,id:string):void{
+    ev.preventDefault();ev.stopPropagation();
+    const e=this.diagram.connections.find(x=>x.id===id);if(!e)return;
+    const points=connectionPoints(this.diagram,e);if(!points||points.length<2)return;
+    const click=this.at(ev);
+    let best=0,dist=Infinity;
+    for(let i=0;i<points.length-1;i++){
+      const a=points[i],b=points[i+1];
+      const dx=b.x-a.x,dy=b.y-a.y;
+      const t=(dx*dx+dy*dy)>0?Math.max(0,Math.min(1,((click.x-a.x)*dx+(click.y-a.y)*dy)/(dx*dx+dy*dy))):0;
+      const ds=Math.hypot(click.x-(a.x+dx*t),click.y-(a.y+dy*t));
+      if(ds<dist){best=i;dist=ds;}
+    }
+    const interior=points.slice(1,-1).map(p=>({...p}));
+    interior.splice(best,0,{x:this.snap(click.x),y:this.snap(click.y)});
+    e.waypoints=interior;
+    this.edgeId=id;this.nodeId='';
+    this.notice='Bend added: drag the blue handle to route the wire';
     this.emit();
   }
   private savePreset():void{
@@ -275,66 +352,126 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private renderEdgeInspector(e:PowerConnection){
     return html`<h4>Electrical connection</h4>
       <div class="upfc-subtle">${e.from.node}/${e.from.port} → ${e.to.node}/${e.to.port}</div>
-      <label>Label (optional)</label><input .value=${e.name??''} @change=${(ev:Event)=>this.changeEdge('name',(ev.currentTarget as HTMLInputElement).value)}/>
+      <label>Label (optional)</label><input .value=${e.name??''}
+        @change=${(ev:Event)=>this.changeEdge('name',(ev.currentTarget as HTMLInputElement).value)}/>
       <label>Power sensor (W/kW/MW)</label>${this.entityInput(e.powerEntity,v=>this.changeEdge('powerEntity',v))}
       <label><input type="checkbox" style="width:auto" .checked=${!!e.invert}
-        @change=${(ev:Event)=>this.changeEdge('invert',(ev.currentTarget as HTMLInputElement).checked)}/> Invert flow direction</label>
-      <p class="upfc-subtle">Positive: source → target. Negative: target → source. No sensor: no animated flow. Independent readings required to avoid double-counting.</p>
-      <div class="upfc-toolbar">
-        <button @click=${()=>this.bend()}>+ Bend point</button>
-        <button @click=${()=>this.changeEdge('waypoints',[])}>Auto route</button>
+        @change=${(ev:Event)=>this.changeEdge('invert',(ev.currentTarget as HTMLInputElement).checked)}/> Reverse positive direction</label>
+      <p class="upfc-subtle">Positive: source → target; negative: target → source; unavailable: no animation.</p>
+      <h4>Wire routing</h4>
+      <label>Mode</label>
+      <select .value=${e.route??'auto'} @change=${(ev:Event)=>{
+        e.route=(ev.currentTarget as HTMLSelectElement).value as PowerConnection['route'];
+        e.waypoints=[];this.emit();
+      }}>
+        <option value="auto">Auto · separated lanes</option>
+        <option value="horizontal">Horizontal corridors</option>
+        <option value="vertical">Vertical corridors</option>
+        <option value="straight">Straight line</option>
+      </select>
+      <label>Lane displacement (SVG units)</label>
+      <input type="range" min="-180" max="180" step="6" .value=${String(e.routeOffset??0)}
+        @input=${(ev:Event)=>{e.routeOffset=Number((ev.currentTarget as HTMLInputElement).value);this.requestUpdate();}}
+        @change=${(ev:Event)=>this.changeEdge('routeOffset',Number((ev.currentTarget as HTMLInputElement).value))}/>
+      <div class="upfc-subtle">Offset: ${e.routeOffset??0}</div>
+      <div class="upfc-port-row">
+        <div><label>Stroke width</label><input type="number" min="1" max="12" step="1"
+          .value=${String(e.lineWidth??3)} @change=${(ev:Event)=>this.changeEdge('lineWidth',Math.min(12,Math.max(1,Number((ev.currentTarget as HTMLInputElement).value))))}/></div>
+        <div><label>Color</label><input type="color" .value=${e.color??'#f8b84e'}
+          @change=${(ev:Event)=>this.changeEdge('color',(ev.currentTarget as HTMLInputElement).value)}/></div>
+        <div><label>Flow speed</label><input type="number" min=".25" max="8" step=".25"
+          .value=${String(e.animationSpeed??1)} @change=${(ev:Event)=>this.changeEdge('animationSpeed',Math.min(8,Math.max(.25,Number((ev.currentTarget as HTMLInputElement).value))))}/></div>
+        <div><label>Sensor sign</label><button @click=${()=>this.changeEdge('invert',!e.invert)}>${e.invert?'Reversed':'Normal'}</button></div>
       </div>
-      <button class="danger" @click=${()=>this.deleteSelected()}>Delete connection</button>`;
+      <div class="upfc-toolbar">
+        <button @click=${()=>this.bend()}>${e.waypoints?.length?'+ Bend point':'Edit bends'}</button>
+        <button @click=${()=>{e.waypoints=[];this.emit();}}>Reset auto bends</button>
+        <button @click=${()=>this.changeEdge('color',undefined)}>Auto color</button>
+      </div>
+      <p class="upfc-subtle">Double-click any wire to add a draggable handle. In full screen, drag blue handles to edit its shape. Wire values are not summed automatically.</p>
+      <button class="danger" @click=${()=>this.deleteSelected()}>🗑 Delete connection</button>`;
   }
-  protected render(){
+  private selectItem(raw:string):void{
+    this.nodeId=raw.startsWith('node:')?raw.slice(5):'';
+    this.edgeId=raw.startsWith('edge:')?raw.slice(5):'';
+    this.portStart=undefined;
+  }
+  private renderWorkspace(){
     const d=this.diagram,errors=validateDiagram(d);
     const view={x:this.pan.x,y:this.pan.y,width:d.width/this.zoom,height:d.height/this.zoom};
-    const entityIds=this.hass?Object.keys(this.hass.states).filter(id=>id.startsWith('sensor.')||id.startsWith('binary_sensor.')).sort():[];
-    return html`<ha-card>
-      <h3>Universal Power Flow Designer</h3>
-      <div class="upfc-toolbar">
-        <label>Equipment:</label>
+    return html`
+      <div class="upfc-toolbar upfc-primarybar">
+        <label>Equipment</label>
         <select .value=${this.preset} @change=${(ev:Event)=>this.preset=(ev.currentTarget as HTMLSelectElement).value}>
           ${this.templateOptions()}
         </select>
-        <button class="primary" @click=${()=>this.addNode()}>+ Add</button>
-        <button @click=${()=>{this.nodeId='';this.edgeId='';this.portStart=undefined;}}>Cancel selection</button>
-        <button @click=${()=>this.exportJson()}>Export JSON</button>
-        <label style="display:inline-block">Import JSON <input type="file" accept=".json,application/json" @change=${(ev:Event)=>void this.importJson(ev)}/></label>
+        <button class="primary" @click=${()=>this.addNode()}>+ Add equipment</button>
+        <label>Selected</label>
+        <select .value=${this.nodeId?'node:'+this.nodeId:this.edgeId?'edge:'+this.edgeId:''}
+          @change=${(ev:Event)=>this.selectItem((ev.currentTarget as HTMLSelectElement).value)}>
+          <option value="">— select an item —</option>
+          <optgroup label="Equipment">${d.nodes.map(n=>html`<option value="node:${n.id}">${n.name}</option>`)}</optgroup>
+          <optgroup label="Wires">${d.connections.map(e=>html`<option value="edge:${e.id}">${e.name??e.id} · ${e.from.node} → ${e.to.node}</option>`)}</optgroup>
+        </select>
+        <button class="danger" ?disabled=${!this.nodeId&&!this.edgeId} @click=${()=>this.deleteSelected()}>🗑 Delete selected</button>
       </div>
+      <details class="upfc-palette"><summary>Equipment palette — click to add or drag onto canvas</summary>
+        <div class="upfc-toolbar">${Object.entries(PRESETS).map(([type,p])=>html`
+          <button draggable="true" title="Drag onto canvas to position" @dragstart=${(ev:DragEvent)=>this.dragPalette(ev,type)}
+            @click=${()=>this.addNode(type)}>${p.name}</button>`)}</div>
+      </details>
       <div class="upfc-toolbar">
-        ${Object.entries(PRESETS).map(([type,p])=>html`<button draggable="true" title="Drag into canvas"
-          @dragstart=${(ev:DragEvent)=>this.dragPalette(ev,type)} @click=${()=>this.addNode(type)}>${p.name}</button>`)}
-      </div>
-      <div class="upfc-toolbar">
-        <label>Zoom:</label>
-        <button @click=${()=>this.setZoom(this.zoom*1.25)}>+</button>
+        <span>Zoom</span>
+        <button @click=${()=>this.setZoom(this.zoom*1.3)}>+</button>
         <span>${Math.round(this.zoom*100)}%</span>
-        <button @click=${()=>this.setZoom(this.zoom/1.25)}>−</button>
-        <button @click=${()=>{this.zoom=1;this.pan={x:0,y:0};}}>Fit</button>
-        <span class="upfc-subtle">Drag equipment to move • select two ports to connect • Shift+drag empty canvas to pan • Ctrl+wheel to zoom</span>
+        <button @click=${()=>this.setZoom(this.zoom/1.3)}>−</button>
+        <button @click=${()=>{this.zoom=1;this.pan={x:0,y:0};}}>Reset view</button>
+        <button @click=${()=>this.exportJson()}>Export JSON</button>
+        <label>Import JSON <input type="file" accept=".json,application/json" @change=${(ev:Event)=>void this.importJson(ev)}/></label>
       </div>
-      ${this.portStart?html`<p>Select target port for ${this.portStart.node}/${this.portStart.port}</p>`:nothing}
+      ${this.portStart?html`<p>Select second port for ${this.portStart.node}/${this.portStart.port}</p>`:nothing}
       ${this.notice?html`<p class="upfc-warning">${this.notice}</p>`:nothing}
-      ${errors.length?html`<p class="upfc-warning">Topology validation: ${errors.slice(0,8).join(' • ')}</p>`:nothing}
+      ${errors.length?html`<p class="upfc-warning">Topology errors: ${errors.slice(0,8).join(' • ')}</p>`:nothing}
+      <p class="upfc-subtle">Drag devices by their body • click one port then another to connect • double-click wire for bends • Shift+drag background to pan • Ctrl+wheel to zoom • Delete key removes selection</p>
       <div class="upfc-layout">
-        <div @dragover=${(ev:DragEvent)=>ev.preventDefault()} @drop=${(ev:DragEvent)=>this.drop(ev)}>
+        <div class="upfc-canvas-shell" @dragover=${(ev:DragEvent)=>ev.preventDefault()}
+          @drop=${(ev:DragEvent)=>this.drop(ev)}>
           ${renderDiagram({diagram:d,hass:this.hass,instanceId:this.instanceId,edit:true,
             selectedNode:this.nodeId,selectedEdge:this.edgeId,events:this.canvasEvents,view})}
         </div>
         <aside class="upfc-inspector">
           <h4>Card settings</h4>
-          <label>Title</label><input .value=${this.config.title??''} @change=${(ev:Event)=>{this.config.title=(ev.currentTarget as HTMLInputElement).value;this.emit();}}/>
+          <label>Title</label><input .value=${this.config.title??''} @change=${(ev:Event)=>{
+            this.config.title=(ev.currentTarget as HTMLInputElement).value;this.emit();}}/>
           <label><input type="checkbox" style="width:auto" .checked=${this.config.animation!==false}
-            @change=${(ev:Event)=>{this.config.animation=(ev.currentTarget as HTMLInputElement).checked;this.emit();}}/> Animate valid power readings</label>
+            @change=${(ev:Event)=>{this.config.animation=(ev.currentTarget as HTMLInputElement).checked;this.emit();}}/> Animate measured power flow</label>
           ${this.selectedNode?this.renderNodeInspector(this.selectedNode):
             this.selectedEdge?this.renderEdgeInspector(this.selectedEdge):
-            html`<p class="upfc-subtle">Select a device or connection. Custom equipment, ports, entity bindings and reusable templates are stored in this card configuration.</p>
-              <p class="upfc-subtle">Equipment: ${d.nodes.length}. Connections: ${d.connections.length}. Saved templates: ${this.config.library?.length??0}.</p>
-              <button @click=${()=>{if(confirm('Replace layout with starter telecom example?')){this.config.diagram=demoDiagram();this.nodeId='';this.edgeId='';this.emit();}}}>Load telecom example</button>`}
+            html`<p class="upfc-subtle">Select equipment or wire from canvas, or select its name above. The Delete button then becomes active.</p>
+              <p class="upfc-subtle">${d.nodes.length} devices · ${d.connections.length} wires · ${this.config.library?.length??0} templates</p>
+              <button @click=${()=>{if(window.confirm('Replace layout with telecom demo?')){
+                this.config.diagram=demoDiagram();this.nodeId='';this.edgeId='';this.emit();}}}>Restore telecom example</button>`}
         </aside>
       </div>
-      <datalist id="upfc-entities">${entityIds.map(id=>html`<option value="${id}"></option>`)}</datalist>
+      <datalist id="upfc-entities">${this.hass?
+        Object.keys(this.hass.states).filter(id=>id.startsWith('sensor.')||id.startsWith('binary_sensor.'))
+          .sort().map(id=>html`<option value="${id}"></option>`):nothing}</datalist>
+    `;
+  }
+  protected render(){
+    return html`<ha-card class="upfc-editor-card">
+      <div class="upfc-toolbar">
+        <h3>Universal Power Flow Designer</h3>
+        <button class="primary" @click=${()=>void this.openExpanded()}>⛶ Full-screen editor</button>
+      </div>
+      ${this.expanded?html`<p class="upfc-subtle">Editor is open in full-screen mode.</p>
+        <dialog class="upfc-dialog" @cancel=${(ev:Event)=>{ev.preventDefault();this.closeExpanded();}}>
+          <div class="upfc-toolbar">
+            <h3>Universal Power Flow Designer · full screen</h3>
+            <button @click=${()=>this.closeExpanded()}>✕ Close full screen</button>
+          </div>
+          ${this.renderWorkspace()}
+        </dialog>`:this.renderWorkspace()}
     </ha-card>`;
   }
 }

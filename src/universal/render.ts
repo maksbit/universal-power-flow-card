@@ -6,6 +6,7 @@ export interface CanvasEvents {
   nodeDown?: (event: PointerEvent, id: string) => void;
   portDown?: (event: PointerEvent, node: string, port: string) => void;
   edgeClick?: (id: string) => void;
+  edgeDoubleClick?: (event: MouseEvent, id: string) => void;
   waypointDown?: (event: PointerEvent, edgeId: string, index: number) => void;
   backgroundDown?: (event: PointerEvent) => void;
   pointerMove?: (event: PointerEvent) => void;
@@ -60,15 +61,51 @@ function powerText(w:number|null):string{
   if(Math.abs(w)>=1000)return `${(w/1000).toFixed(2)} kW`;
   return `${w.toFixed(Math.abs(w)<10?1:0)} W`;
 }
+type RouteAxis = 'horizontal' | 'vertical';
+function portNormal(node: PowerNode, port: PowerPort): Point {
+  const base: Record<PowerPort['side'],Point> = {
+    left:{x:-1,y:0},right:{x:1,y:0},top:{x:0,y:-1},bottom:{x:0,y:1}
+  };
+  const v=base[port.side],angle=(node.rotation??0)*Math.PI/180;
+  return {x:Math.round(v.x*Math.cos(angle)-v.y*Math.sin(angle)),
+    y:Math.round(v.x*Math.sin(angle)+v.y*Math.cos(angle))};
+}
+function connectionKind(diagram:PowerDiagram,e:PowerConnection):PortKind|undefined{
+  return diagram.nodes.find(n=>n.id===e.from.node)?.ports.find(p=>p.id===e.from.port)?.kind;
+}
+/** Number each wire leaving a device on a separate lane to reduce overlapping trunks. */
+export function automaticLaneOffset(d:PowerDiagram,e:PowerConnection):number{
+  const kind=connectionKind(d,e);
+  const siblings=d.connections.filter(c=>c.from.node===e.from.node&&connectionKind(d,c)===kind);
+  const index=siblings.findIndex(c=>c.id===e.id);
+  // A physical port shared by multiple wires still converges at the terminal.
+  // The individual routes diverge immediately after leaving that terminal.
+  return (index<0?0:index-(siblings.length-1)/2)*34;
+}
+function cleanPoints(points:Point[]):Point[]{
+  return points.filter((p,i)=>i===0||Math.abs(p.x-points[i-1].x)>.01||Math.abs(p.y-points[i-1].y)>.01);
+}
+/** Reproducible orthogonal routing; explicit manual waypoints always win. */
 export function connectionPoints(diagram:PowerDiagram,e:PowerConnection):Point[]|null{
   const na=diagram.nodes.find(n=>n.id===e.from.node), nb=diagram.nodes.find(n=>n.id===e.to.node);
   const pa=na?.ports.find(p=>p.id===e.from.port),pb=nb?.ports.find(p=>p.id===e.to.port);
   if(!na||!nb||!pa||!pb)return null;
-  const a=portPosition(na,pa), b=portPosition(nb,pb);
-  if(e.waypoints?.length)return [a,...e.waypoints,b];
-  if(Math.abs(a.x-b.x)<3 || Math.abs(a.y-b.y)<3)return [a,b];
-  const mid=(a.x+b.x)/2;
-  return [a,{x:mid,y:a.y},{x:mid,y:b.y},b];
+  const a=portPosition(na,pa),b=portPosition(nb,pb);
+  if(e.waypoints?.length)return cleanPoints([a,...e.waypoints,b]);
+  if(e.route==='straight')return [a,b];
+  const normalA=portNormal(na,pa),normalB=portNormal(nb,pb);
+  const stub=26;
+  const start={x:a.x+normalA.x*stub,y:a.y+normalA.y*stub};
+  const finish={x:b.x+normalB.x*stub,y:b.y+normalB.y*stub};
+  const mode:RouteAxis=e.route==='horizontal'||e.route==='vertical'?e.route:
+    Math.abs(normalA.x)>Math.abs(normalA.y)?'horizontal':'vertical';
+  const lane=automaticLaneOffset(diagram,e)+(e.routeOffset??0);
+  if(mode==='horizontal'){
+    const mid=(start.x+finish.x)/2+lane;
+    return cleanPoints([a,start,{x:mid,y:start.y},{x:mid,y:finish.y},finish,b]);
+  }
+  const mid=(start.y+finish.y)/2+lane;
+  return cleanPoints([a,start,{x:start.x,y:mid},{x:finish.x,y:mid},finish,b]);
 }
 export function pathOf(points:Point[]):string{
   return points.map((p,i)=>`${i?'L':'M'} ${finite(p.x).toFixed(1)} ${finite(p.y).toFixed(1)}`).join(' ');
@@ -106,14 +143,15 @@ export function renderDiagram(o:CanvasOptions) {
       const power=sensorPower(e.powerEntity,o.hass);
       const watts=power===null?null:(e.invert?-power:power);
       const kind=d.nodes.find(n=>n.id===e.from.node)?.ports.find(p=>p.id===e.from.port)?.kind??'signal';
-      const color=CONNECTION_COLORS[kind],pathId=`${id}-flow-${e.id}`;
+      const color=e.color??CONNECTION_COLORS[kind],pathId=`${id}-flow-${e.id}`;
       const m=midpoint(points),active=watts!==null&&Math.abs(watts)>=0.1&&o.animate!==false;
-      const duration=active?Math.max(1.6,Math.min(9,8-Math.log10(Math.max(1,Math.abs(watts)))*1.25)):6;
+      const duration=active?Math.max(0.5,Math.min(30,(8-Math.log10(Math.max(1,Math.abs(watts)))*1.25)/(e.animationSpeed??1))):6;
       return svg`<g class="upfc-edge ${o.selectedEdge===e.id?'selected':''}">
         <path id="${pathId}" d="${pathOf(points)}" stroke="${color}"
-          stroke-dasharray="${kind==='signal'?'7 5':watts===null?'5 4':''}" stroke-width="${o.selectedEdge===e.id?5:3}"
+          stroke-dasharray="${kind==='signal'?'7 5':watts===null?'5 4':''}" stroke-width="${(e.lineWidth??3)+(o.selectedEdge===e.id?2:0)}"
           fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="${watts===null?0.65:1}"/>
-        <path class="upfc-edge-hit" d="${pathOf(points)}" @click=${()=>events?.edgeClick?.(e.id)}/>
+        <path class="upfc-edge-hit" d="${pathOf(points)}" @click=${()=>events?.edgeClick?.(e.id)}
+          @dblclick=${(ev:MouseEvent)=>events?.edgeDoubleClick?.(ev,e.id)}/>
         ${active?svg`<circle r="5" fill="${color}" stroke="#fff" stroke-width="1">
           <animateMotion dur="${duration}s" repeatCount="indefinite" keyPoints="${watts!<0?'1;0':'0;1'}" keyTimes="0;1" calcMode="linear">
             <mpath href="#${pathId}"/>
