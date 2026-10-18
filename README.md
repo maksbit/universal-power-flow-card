@@ -2,6 +2,10 @@
 
 **Visual topology designer and animated electrical-power dashboard for Home Assistant.**
 
+![Conceptual AC/DC telecom topology](docs/universal-topology-preview.svg)
+
+*Illustrative architecture preview; this is not a screenshot or a physical wiring diagram.*
+
 Developed in [maksbit/universal-power-flow-card](https://github.com/maksbit/universal-power-flow-card), independently from the original Sunsynk Power Flow Card. The new Lovelace element is `custom:universal-power-flow-card`, and the JavaScript resource is `universal-power-flow-card.js`. Both cards can coexist on one Home Assistant dashboard.
 
 ## Getting started

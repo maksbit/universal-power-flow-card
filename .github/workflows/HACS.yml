@@ -16,3 +16,5 @@ jobs:
         uses: hacs/action@main
         with:
           category: plugin
+          # GitHub repository description/topics require one-time Settings metadata entry.
+          ignore: 'description topics'

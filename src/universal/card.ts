@@ -1,4 +1,5 @@
 import {LitElement,html} from 'lit';
+import {version as CARD_VERSION} from '../../package.json';
 import {customElement,property} from 'lit/decorators.js';
 import {HomeAssistant} from 'custom-card-helpers';
 import {CardConfig,PowerDiagram,makeId,parseDiagram} from './model';
@@ -45,4 +46,4 @@ if(!window.customCards.some(c=>c.type==='universal-power-flow-card')){
   window.customCards.push({type:'universal-power-flow-card',name:'Universal Power Flow Card',
     description:'Drag-and-drop AC/DC topology designer for Home Assistant',preview:true,configurable:true});
 }
-console.info('%c Universal Power Flow Card 0.1.0 ','background:#15517b;color:white;font-weight:bold');
+console.info(`%c Universal Power Flow Card ${CARD_VERSION} `,'background:#15517b;color:white;font-weight:bold');
