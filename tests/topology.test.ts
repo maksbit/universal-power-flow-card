@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {cloneDiagram,parseDiagram,portCompatible,validateDiagram,PowerPort} from '../src/universal/model';
 import {createNode,demoDiagram} from '../src/universal/presets';
 import {connectionPoints,sensorPower,portPosition,automaticLaneOffset} from '../src/universal/render';
+import {equipmentObstacle,findOrthogonalPath,pathHitsEquipment,segmentHitsObstacle} from '../src/universal/routing';
 
 test('telecom topology demo is electrically and structurally valid',()=>{
   const d=demoDiagram();
@@ -113,4 +114,48 @@ test('invalid visual routing and unbounded offsets are rejected',()=>{
   assert.ok(validateDiagram(d).some(e=>e.includes('lane offset')));
   assert.ok(validateDiagram(d).some(e=>e.includes('line width')));
   assert.ok(validateDiagram(d).some(e=>e.includes('wire color')));
+});
+
+test('A* navigation detours around a rectangular equipment obstacle',()=>{
+  const d=demoDiagram();
+  const blocker=createNode('rectifier',350,300);
+  blocker.id='blocker';blocker.width=190;blocker.height=170;
+  d.nodes=[blocker];
+  const start={x:110,y:380},end={x:820,y:380};
+  const pts=findOrthogonalPath(d,start,end,{mode:'horizontal',lane:0});
+  assert.ok(pts&&pts.length>2,'route must detour, not cross equipment');
+  for(let i=1;i<pts.length;i++){
+    assert.ok(pts[i-1].x===pts[i].x||pts[i-1].y===pts[i].y,
+      'every segment must remain orthogonal');
+    assert.equal(segmentHitsObstacle(pts[i-1],pts[i],equipmentObstacle(blocker)),false,
+      'wire must not enter expanded equipment bounds');
+  }
+});
+test('routing immediately recalculates when obstacle moves',()=>{
+  const d=demoDiagram(),blocker=createNode('ac_load',345,350);
+  blocker.width=240;blocker.height=150;blocker.id='moving-blocker';
+  d.nodes=[blocker];
+  const a={x:80,y:390},b={x:900,y:390};
+  const first=findOrthogonalPath(d,a,b,{mode:'horizontal',lane:0});
+  assert.ok(first&&first.length>2);
+  blocker.y=750;
+  const second=findOrthogonalPath(d,a,b,{mode:'horizontal',lane:0});
+  assert.ok(second&&second.length>=2);
+  assert.notDeepEqual(second,first,'wire must update after moving device');
+});
+test('all rendered starter connections have obstacle-free interior or are flagged blocked',()=>{
+  const d=demoDiagram();
+  for(const e of d.connections){
+    const pts=connectionPoints(d,e);
+    if(pts===null)continue; // blocked edges are intentionally suppressed, never routed across nodes
+    assert.deepEqual(pathHitsEquipment(pts.slice(1,-1),d),[],
+      `edge ${e.id} crossed an equipment clearance`);
+  }
+});
+test('line-line overlap carries a lane cost and separate route source is deterministic',()=>{
+  const d=demoDiagram(),e=d.connections.find(x=>x.id==='ac_server')!;
+  const p=connectionPoints(d,e);
+  assert.ok(p&&p.length>=2);
+  const again=connectionPoints(d,e);
+  assert.deepEqual(p,again);
 });

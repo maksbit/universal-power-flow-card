@@ -23,6 +23,9 @@ The card initially shows the **example topology** with no animated values; telem
 
 ## Visual editor
 
+**v0.1.3:** Obstacle-aware Manhattan pathfinding avoids component boxes with clearance, replans lines when devices move, and discourages overlapping wiring corridors. The editor now sends immutable configuration snapshots and triggers a dedicated reactive refresh on each edit, so deletions and parameter changes should immediately affect the canvas and Lovelace preview. If an automatic route is impossible, the editor reports it rather than silently drawing a line through equipment. Manual bend points and straight mode remain explicit user overrides and may cross equipment; inspect those links visually.
+
+
 **v0.1.2 layout usability:** click **Full-screen editor** to work on a large responsive canvas, not in Home Assistant's narrow card setup column. Drag device bodies to move (window-level pointer tracking); select components/wires from the **Selected** list and click **Delete selected**, or select on the canvas and press Delete. Wires use automatically separated orthogonal lanes rather than a shared center; select a wire to configure routing axis, lane offset, color, width, speed and optional signed power sensor. Double-click a wire to add manual bend handles, or use **Edit bends**; drag handles and **Reset auto bends** to revert.
 
 
