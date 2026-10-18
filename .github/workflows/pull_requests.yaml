@@ -24,6 +24,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Diagnose Docker visibility on self-hosted runner
+        shell: bash
+        run: |
+          echo "RUNNER_NAME=${RUNNER_NAME}"
+          echo "HOSTNAME=$(hostname)"
+          echo "USER=$(id -un)"
+          echo "PATH=$PATH"
+          echo "--- docker binary / packages ---"
+          command -v docker || true
+          ls -l /usr/bin/docker /usr/local/bin/docker /snap/bin/docker 2>&1 || true
+          echo "--- docker daemon and socket ---"
+          systemctl is-active docker 2>&1 || true
+          ls -l /var/run/docker.sock 2>&1 || true
+          echo "--- daemon access ---"
+          docker version 2>&1 | head -40 || true
+          docker info --format 'Docker server: {{.ServerVersion}}' 2>&1 || true
       - name: Install
         run: npm install --legacy-peer-deps --ignore-scripts
       - name: TypeScript
