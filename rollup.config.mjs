@@ -3,8 +3,10 @@ import { nodeResolve } from '@rollup/plugin-node-resolve';
 import babel from '@rollup/plugin-babel';
 import terser from '@rollup/plugin-terser';
 import json from '@rollup/plugin-json';
+import { readFileSync } from 'node:fs';
 
 const isWatch = process.env.ROLLUP_WATCH === 'true';
+const licenseBanner = `/*!\n${readFileSync('./LICENSE', 'utf8')}\n*/`;
 
 const plugins = [
   nodeResolve({
@@ -50,6 +52,7 @@ export default {
     file: 'dist/universal-power-flow-card.js',
     format: 'esm',
     name: 'UniversalPowerFlowCard',
+    banner: licenseBanner,
     inlineDynamicImports: true,
     sourcemap: true,
   },

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="Conceptual dual inverter telecom power topology">
+<defs><style>
+.bg{fill:#122230}.panel{fill:#203848;stroke:#5d7488;stroke-width:2}
+.title{fill:#f4f7fa;font:600 20px system-ui,sans-serif}
+.head{fill:#f8fafc;font:600 16px system-ui,sans-serif}
+.detail{fill:#adc4d3;font:13px system-ui,sans-serif}
+.ac{stroke:#f8b84e}.pos{stroke:#ed5252}.neg{stroke:#707780}.signal{stroke:#38baf4;stroke-dasharray:6 6}
+.wire{fill:none;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
+</style></defs>
+<rect width="1280" height="640" rx="20" class="bg"/>
+<text x="32" y="45" class="title">Universal Power Flow · Telecom site (logical topology preview)</text>
+<rect x="40" y="90" width="175" height="64" rx="12" class="panel"/><text x="128" y="119" text-anchor="middle" class="head">External GRID</text><text x="128" y="140" text-anchor="middle" class="detail">3-phase AC</text>
+<rect x="40" y="194" width="175" height="64" rx="12" class="panel"/><text x="128" y="222" text-anchor="middle" class="head">Generator</text><text x="128" y="243" text-anchor="middle" class="detail">AC + start signal</text>
+<rect x="322" y="122" width="190" height="160" rx="12" class="panel"/><text x="417" y="151" text-anchor="middle" class="head">Deye #1</text><text x="417" y="180" text-anchor="middle" class="detail">GRID · GEN · LOAD</text><text x="417" y="203" text-anchor="middle" class="detail">BAT+ / BAT−</text><text x="417" y="227" text-anchor="middle" class="detail">GEN CTRL</text>
+<rect x="644" y="90" width="170" height="84" rx="12" class="panel"/><text x="729" y="121" text-anchor="middle" class="head">AC distribution</text><text x="729" y="145" text-anchor="middle" class="detail">LOAD circuits</text>
+<rect x="948" y="64" width="266" height="74" rx="12" class="panel"/><text x="1081" y="92" text-anchor="middle" class="head">Telecom AC loads / HVAC</text><text x="1081" y="116" text-anchor="middle" class="detail">Dedicated load branches</text>
+<rect x="948" y="202" width="266" height="94" rx="12" class="panel"/><text x="1081" y="235" text-anchor="middle" class="head">AC/DC rectifiers</text><text x="1081" y="259" text-anchor="middle" class="detail">48 VDC output to common bus</text>
+<rect x="40" y="441" width="175" height="102" rx="12" class="panel"/><text x="128" y="475" text-anchor="middle" class="head">48 V Battery</text><text x="128" y="499" text-anchor="middle" class="detail">Shared storage</text><text x="128" y="522" text-anchor="middle" class="detail">+ / −</text>
+<rect x="324" y="412" width="596" height="102" rx="14" class="panel"/><text x="622" y="440" text-anchor="middle" class="head">Common DC bus · 48 V</text>
+<path d="M 350 464 H 892" class="wire pos"/><path d="M 350 488 H 892" class="wire neg"/>
+<text x="367" y="459" class="detail">+</text><text x="367" y="508" class="detail">−</text>
+<rect x="971" y="422" width="243" height="101" rx="12" class="panel"/><text x="1093" y="463" text-anchor="middle" class="head">DC telecom loads</text><text x="1093" y="489" text-anchor="middle" class="detail">+ / − from DC bus</text>
+<rect x="550" y="548" width="188" height="69" rx="12" class="panel"/><text x="644" y="576" text-anchor="middle" class="head">Deye #2 · off-grid</text><text x="644" y="599" text-anchor="middle" class="detail">BAT / LOAD</text>
+<rect x="938" y="548" width="276" height="69" rx="12" class="panel"/><text x="1076" y="576" text-anchor="middle" class="head">Reserved AC load</text><text x="1076" y="599" text-anchor="middle" class="detail">Deye #2 LOAD only</text>
+<path d="M 215 122 H 290 V 170 H 322" class="wire ac"/>
+<path d="M 215 226 H 322" class="wire ac"/>
+<path d="M 215 246 H 294 V 259 H 349" class="wire signal"/>
+<path d="M 512 164 H 644" class="wire ac"/>
+<path d="M 814 125 H 948" class="wire ac"/>
+<path d="M 814 152 H 880 V 249 H 948" class="wire ac"/>
+<path d="M 417 282 V 392 H 530 V 464" class="wire pos"/>
+<path d="M 435 282 V 380 H 548 V 488" class="wire neg"/>
+<path d="M 1081 296 V 359 H 854 V 464" class="wire pos"/>
+<path d="M 1110 296 V 376 H 876 V 488" class="wire neg"/>
+<path d="M 215 466 H 350" class="wire pos"/><path d="M 215 492 H 350" class="wire neg"/>
+<path d="M 920 464 H 971" class="wire pos"/><path d="M 920 488 H 971" class="wire neg"/>
+<path d="M 618 514 V 548" class="wire pos"/><path d="M 660 514 V 548" class="wire neg"/>
+<path d="M 738 578 H 938" class="wire ac"/>
+<text x="32" y="625" class="detail">Illustrative topology only · individual DC polarities and AC/GEN/GRID ports are modeled separately in the editor · not a wiring design</text>
+</svg>
