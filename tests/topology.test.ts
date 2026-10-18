@@ -77,13 +77,19 @@ test('auto route spaces parallel wires into separate corridors',()=>{
   assert.ok(pathA&&pathB&&pathA.length>=4&&pathB.length>=4);
   assert.notEqual(pathA![2].x,pathB![2].x);
 });
-test('route offset modifies auto lane without changing topology',()=>{
-  const d=demoDiagram(),edge=d.connections[0];
-  const orig=connectionPoints(d,edge);
+test('route offset adjusts an unobstructed wiring corridor',()=>{
+  const d=demoDiagram();
+  // Place two devices far enough apart to offer several viable cable corridors.
+  d.nodes=[createNode('grid',40,110),createNode('ac_load',860,420)];
+  d.nodes[0].id='source';
+  d.nodes[1].id='sink';
+  d.connections=[{id:'test_lane',from:{node:'source',port:'out'},to:{node:'sink',port:'in'}}];
+  const edge=d.connections[0],initial=connectionPoints(d,edge);
   edge.routeOffset=76;
-  const modified=connectionPoints(d,edge);
-  assert.ok(orig&&modified);
-  assert.notDeepEqual(orig,modified);
+  const moved=connectionPoints(d,edge);
+  assert.ok(initial&&moved,'both lanes must remain routable');
+  assert.notDeepEqual(moved,initial,'offset must alter a corridor when free space exists');
+  assert.deepEqual(pathHitsEquipment(moved!.slice(1,-1),d),[]);
   assert.deepEqual(validateDiagram(d),[]);
 });
 test('horizontal and vertical routing remain orthogonal',()=>{
