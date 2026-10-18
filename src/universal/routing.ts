@@ -5,6 +5,8 @@ export interface Obstacle { id: string; left: number; right: number; top: number
 export interface RouteOptions {
   mode: 'horizontal'|'vertical';
   lane: number;
+  /** Honor a user-adjusted lane even when a detour is necessary. */
+  forceLane?: boolean;
   /** Already laid-out wires; used to discourage shared trunks and crossings. */
   occupied?: Point[][];
 }
@@ -112,25 +114,35 @@ export function findOrthogonalPath(diagram:PowerDiagram,start:Point,end:Point,op
   if(boxes.some(r=>inRect(start,r)||inRect(end,r)))return null;
   const midX=(start.x+end.x)/2,midY=(start.y+end.y)/2;
   const guide=options.mode==='horizontal'?midX+options.lane:midY+options.lane;
-  // A user-adjusted corridor is a routing constraint, not merely a weak preference.
-  // Try passing through the requested lane, unless an obstacle or unreasonable
-  // detour makes it impossible. Subroutes still use the collision-safe A* graph.
-  if(Math.abs(options.lane)>0.5){
-    const guidePoint=options.mode==='horizontal'?{x:guide,y:midY}:{x:midX,y:guide};
-    if(guidePoint.x>=bounds.left&&guidePoint.x<=bounds.right&&
-       guidePoint.y>=bounds.top&&guidePoint.y<=bounds.bottom&&
-       !boxes.some(r=>inRect(guidePoint,r))){
-      const neutral:RouteOptions={...options,lane:0};
+  // User slider specifies a corridor to traverse whenever a reasonable detour exists.
+  // When the guide falls inside equipment, look for unobstructed positions alongside
+  // that equipment rather than silently ignoring the requested offset.
+  if(options.forceLane&&Math.abs(options.lane)>0.5){
+    const cross=options.mode==='horizontal'?midY:midX;
+    const nearby=distinct([cross,
+      options.mode==='horizontal'?start.y:start.x,
+      options.mode==='horizontal'?end.y:end.x,
+      ...boxes.flatMap(r=>options.mode==='horizontal'
+        ?[r.top-1,r.bottom+1]:[r.left-1,r.right+1])])
+      .sort((u,v)=>Math.abs(u-cross)-Math.abs(v-cross)).slice(0,10);
+    const neutral:RouteOptions={...options,lane:0,forceLane:false};
+    const basicDistance=Math.abs(start.x-end.x)+Math.abs(start.y-end.y);
+    let chosen:Point[]|null=null,chosenLength=Infinity;
+    const length=(points:Point[])=>points.slice(1).reduce((sum,p,i)=>
+      sum+Math.abs(p.x-points[i].x)+Math.abs(p.y-points[i].y),0);
+    for(const coordinate of nearby){
+      const guidePoint=options.mode==='horizontal'?{x:guide,y:coordinate}:{x:coordinate,y:guide};
+      if(guidePoint.x<bounds.left||guidePoint.x>bounds.right||
+         guidePoint.y<bounds.top||guidePoint.y>bounds.bottom||
+         boxes.some(r=>inRect(guidePoint,r)))continue;
       const first=findOrthogonalPath(diagram,start,guidePoint,neutral);
       const second=findOrthogonalPath(diagram,guidePoint,end,neutral);
-      if(first&&second){
-        const combined=simplify([...first,...second.slice(1)]);
-        const length=(points:Point[])=>points.slice(1).reduce((sum,p,i)=>
-          sum+Math.abs(p.x-points[i].x)+Math.abs(p.y-points[i].y),0);
-        if(length(combined)<(Math.abs(start.x-end.x)+Math.abs(start.y-end.y)+150)*2.6)
-          return combined;
-      }
+      if(!first||!second)continue;
+      const candidate=simplify([...first,...second.slice(1)]);
+      const total=length(candidate);
+      if(total<chosenLength){chosen=candidate;chosenLength=total;}
     }
+    if(chosen&&chosenLength<(basicDistance+160)*3)return chosen;
   }
   const xs=distinct([start.x,end.x,midX,options.mode==='horizontal'?guide:midX,
     bounds.left,bounds.right,...boxes.flatMap(r=>[r.left-1,r.right+1])]);
