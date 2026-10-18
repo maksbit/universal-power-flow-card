@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {cloneDiagram,parseDiagram,portCompatible,validateDiagram,PowerPort} from '../src/universal/model';
 import {createNode,demoDiagram} from '../src/universal/presets';
-import {connectionPoints,sensorPower,portPosition} from '../src/universal/render';
+import {connectionPoints,sensorPower,portPosition,automaticLaneOffset} from '../src/universal/render';
 
 test('telecom topology demo is electrically and structurally valid',()=>{
   const d=demoDiagram();
@@ -63,4 +63,54 @@ test('HA power unit conversion and unavailable state',()=>{
   assert.equal(sensorPower('sensor.kilowatts',hass),2500);
   assert.equal(sensorPower('sensor.down',hass),null);
   assert.equal(sensorPower('sensor.missing',hass),null);
+});
+
+test('auto route spaces parallel wires into separate corridors',()=>{
+  const d=demoDiagram();
+  const a=d.connections.find(e=>e.id==='ac_server');
+  const b=d.connections.find(e=>e.id==='ac_hvac');
+  assert.ok(a&&b);
+  assert.notEqual(automaticLaneOffset(d,a!),automaticLaneOffset(d,b!));
+  const pathA=connectionPoints(d,a!);
+  const pathB=connectionPoints(d,b!);
+  assert.ok(pathA&&pathB&&pathA.length>=4&&pathB.length>=4);
+  assert.notEqual(pathA![2].x,pathB![2].x);
+});
+test('route offset modifies auto lane without changing topology',()=>{
+  const d=demoDiagram(),edge=d.connections[0];
+  const orig=connectionPoints(d,edge);
+  edge.routeOffset=76;
+  const modified=connectionPoints(d,edge);
+  assert.ok(orig&&modified);
+  assert.notDeepEqual(orig,modified);
+  assert.deepEqual(validateDiagram(d),[]);
+});
+test('horizontal and vertical routing remain orthogonal',()=>{
+  const d=demoDiagram(),edge=d.connections.find(e=>e.id==='ac_rect')!;
+  for(const mode of ['horizontal','vertical'] as const){
+    edge.route=mode;
+    const points=connectionPoints(d,edge)!;
+    assert.ok(points.length>=4);
+    for(let i=1;i<points.length;i++){
+      assert.ok(Math.abs(points[i].x-points[i-1].x)<.001 ||
+        Math.abs(points[i].y-points[i-1].y)<.001,
+        `non-orthogonal segment ${i} for ${mode}`);
+    }
+  }
+});
+test('manual bends and straight routing override automatic layout',()=>{
+  const d=demoDiagram(),edge=d.connections[0];
+  edge.route='straight';
+  assert.equal(connectionPoints(d,edge)?.length,2);
+  edge.waypoints=[{x:414,y:215},{x:490,y:215}];
+  assert.deepEqual(connectionPoints(d,edge)?.slice(1,-1),edge.waypoints);
+});
+test('invalid visual routing and unbounded offsets are rejected',()=>{
+  const d=demoDiagram(),edge=d.connections[0];
+  edge.routeOffset=Infinity;
+  edge.lineWidth=100;
+  edge.color='javascript:alert(1)';
+  assert.ok(validateDiagram(d).some(e=>e.includes('lane offset')));
+  assert.ok(validateDiagram(d).some(e=>e.includes('line width')));
+  assert.ok(validateDiagram(d).some(e=>e.includes('wire color')));
 });
