@@ -15,7 +15,7 @@ jobs:
           persist-credentials: false
       - name: Show runner identity
         run: echo "runner_name=${RUNNER_NAME}; host=$(hostname)"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - run: npm install --legacy-peer-deps --ignore-scripts
