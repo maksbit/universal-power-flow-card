@@ -5,7 +5,7 @@ import {CardConfig,PowerNode,PowerConnection,PowerPort,PowerDiagram,
   PORT_KINDS,PORT_SIDES,PORT_DIRECTIONS,parseDiagram,cloneDiagram,makeId,portCompatible,
   validateDiagram,Point,PortKind,PortDirection,PortSide} from './model';
 import {PRESETS,createNode,demoDiagram} from './presets';
-import {renderDiagram,CanvasEvents,connectionPoints,resolveEdgePower,flowDescription} from './render';
+import {renderDiagram,CanvasEvents,connectionPoints,pathOf,resolveEdgePower,flowDescription} from './render';
 import {universalStyles} from './styles';
 import {SVG_MODELS,defaultModel} from './device-art';
 import type {SensorKind} from './entities';
@@ -35,6 +35,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private lastInboundSignature='';
   private localEditsPending=false;
   private drag?:Drag;
+  private pendingRoutes=0;
   private readonly instanceId=makeId('editor');
   private readonly moveListener=(ev:PointerEvent)=>this.onPointerMove(ev);
   private readonly upListener=(ev:PointerEvent)=>this.onPointerUp(ev);
@@ -44,12 +45,21 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private readonly keyboardListener=(ev:KeyboardEvent)=>this.onKeyDown(ev);
   private readonly blurListener=()=>this.endDrag();
   private readonly visibilityListener=()=>{if(document.visibilityState==='hidden')this.endDrag();};
+  private readonly fullscreenListener=()=>{
+    const surface=this.renderRoot.querySelector<HTMLElement>('.upfc-fullscreen-workspace');
+    if(this.expanded&&surface&&!surface.matches(':fullscreen')){
+      this.endDrag();
+      this.expanded=false;
+      this.requestUpdate();
+    }
+  };
   public connectedCallback():void{
     super.connectedCallback();
     window.addEventListener('keydown',this.keyboardListener);
     window.addEventListener('pointerdown',this.recoveryListener,{capture:true});
     window.addEventListener('blur',this.blurListener);
     document.addEventListener('visibilitychange',this.visibilityListener);
+    document.addEventListener('fullscreenchange',this.fullscreenListener);
   }
   public disconnectedCallback():void{
     super.disconnectedCallback();
@@ -57,6 +67,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     window.removeEventListener('pointerdown',this.recoveryListener,true);
     window.removeEventListener('blur',this.blurListener);
     document.removeEventListener('visibilitychange',this.visibilityListener);
+    document.removeEventListener('fullscreenchange',this.fullscreenListener);
     this.endDrag();
   }
   private onKeyDown(ev:KeyboardEvent):void{
@@ -71,17 +82,34 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   }
   private openExpanded():void{
     this.endDrag();
-    // HA already uses a modal with its own focus trap. Nested native dialogs
-    // can swallow clicks/pointerup on subsequent editor updates.
+    const surface=this.renderRoot.querySelector<HTMLElement>('.upfc-fullscreen-workspace');
+    if(!surface){this.notice='Fullscreen surface unavailable';this.requestUpdate();return;}
+    // A CSS position:fixed descendant is clipped by Home Assistant's own
+    // dialog/transform. The native Fullscreen API moves the editor into the
+    // browser top layer, independent of all HA modal bounds and stacking contexts.
+    surface.removeAttribute('hidden');
     this.expanded=true;
     this.notice='';
     this.requestUpdate();
+    if(!surface.requestFullscreen){
+      this.expanded=false;
+      this.notice='Этот браузер не поддерживает полноэкранный редактор';
+      this.requestUpdate();
+      return;
+    }
+    void surface.requestFullscreen().catch((error:unknown)=>{
+      this.expanded=false;
+      this.notice='Полноэкранный режим заблокирован браузером: '+String(error);
+      this.requestUpdate();
+    });
   }
   private closeExpanded():void{
     this.endDrag();
+    const surface=this.renderRoot.querySelector<HTMLElement>('.upfc-fullscreen-workspace');
     this.expanded=false;
     this.localEditsPending=false;
     this.requestUpdate();
+    if(surface?.matches(':fullscreen'))void document.exitFullscreen().catch(()=>{});
   }
   private startDrag(next:Drag):void{
     this.endDrag();
@@ -90,14 +118,66 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     window.addEventListener('pointerup',this.upListener,{capture:true});
     window.addEventListener('pointercancel',this.upListener,{capture:true});
   }
-  private endDrag():void{
-    // A cancelled or interrupted gesture must never leave a transformed SVG
-    // object above the inspector or absorb subsequent pointer interactions.
-    if(this.drag?.nodeElement?.isConnected)this.drag.nodeElement.removeAttribute('transform');
+  private endDrag(commit=false):void{
+    const previous=this.drag;
+    if(this.pendingRoutes){cancelAnimationFrame(this.pendingRoutes);this.pendingRoutes=0;}
+    // On interruption (ESC/blur/pointercancel) roll back provisional geometry.
+    // On pointerup, commit the same geometry as displayed during dragging.
+    if(!commit&&previous?.kind==='node'&&previous.id){
+      const node=this.diagram.nodes.find(n=>n.id===previous.id);
+      if(node){node.x=previous.origin.x;node.y=previous.origin.y;}
+    }
+    if(previous?.nodeElement?.isConnected)previous.nodeElement.removeAttribute('transform');
     this.drag=undefined;
     window.removeEventListener('pointermove',this.moveListener,true);
     window.removeEventListener('pointerup',this.upListener,true);
     window.removeEventListener('pointercancel',this.upListener,true);
+    if(!commit&&previous?.moved)this.requestUpdate();
+  }
+  private refreshLiveWires():void{
+    const canvas=this.svgEl;
+    if(!canvas||!this.drag)return;
+    // Recompute collision-aware routes with the current in-memory node positions.
+    // Only change attributes in the existing SVG; do not recreate nodes under the mouse.
+    const occupied:Point[][]=[];
+    for(const edge of this.diagram.connections){
+      const points=connectionPoints(this.diagram,edge,occupied);
+      const g=[...canvas.querySelectorAll<SVGGElement>('g[data-upfc-edge]')]
+        .find(element=>element.dataset.upfcEdge===edge.id);
+      if(!g)continue;
+      if(!points){g.style.visibility='hidden';continue;}
+      occupied.push(points);
+      g.style.visibility='';
+      const d=pathOf(points);
+      g.querySelectorAll<SVGPathElement>('path').forEach(path=>path.setAttribute('d',d));
+      const motion=g.querySelector<SVGAnimateMotionElement>('animateMotion');
+      if(motion){
+        const watts=resolveEdgePower(this.diagram,edge,this.hass).watts;
+        motion.setAttribute('path',pathOf(watts!==null&&watts<0?[...points].reverse():points));
+      }
+
+      const lengths=points.slice(1).map((p,i)=>Math.hypot(p.x-points[i].x,p.y-points[i].y));
+      let remaining=lengths.reduce((a,b)=>a+b,0)/2;
+      let middle=points[Math.floor(points.length/2)];
+      for(let i=0;i<lengths.length;i++){
+        if(remaining<=lengths[i]){
+          const t=lengths[i]?remaining/lengths[i]:0;
+          middle={x:points[i].x+(points[i+1].x-points[i].x)*t,
+                  y:points[i].y+(points[i+1].y-points[i].y)*t};
+          break;
+        }
+        remaining-=lengths[i];
+      }
+      const label=g.querySelector<SVGGElement>('g.upfc-edge-label');
+      label?.setAttribute('transform',`translate(${middle.x} ${middle.y-12})`);
+    }
+  }
+  private scheduleLiveWires():void{
+    if(this.pendingRoutes)return;
+    this.pendingRoutes=requestAnimationFrame(()=>{
+      this.pendingRoutes=0;
+      this.refreshLiveWires();
+    });
   }
   private readonly canvasEvents:CanvasEvents={
     nodeDown:(ev,id)=>this.onNodeDown(ev,id),
@@ -170,7 +250,8 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     // Do not cancel pointerdown, because the following native click is needed.
     ev.stopPropagation();
     this.nodeId=id;this.edgeId='';this.portStart=undefined;this.pendingDeleteId='';
-    this.requestUpdate();
+    // Selection will refresh on click/pointerup; do not rerender SVG beneath
+    // the active pointer just before starting a drag.
     const n=this.selectedNode;if(!n)return;
     this.startDrag({kind:'node',id,pointerId:ev.pointerId,
       screenStart:{x:ev.clientX,y:ev.clientY},start:this.at(ev),origin:{x:n.x,y:n.y},
@@ -211,17 +292,18 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     }
     const p=this.at(ev),dx=p.x-this.drag.start.x,dy=p.y-this.drag.start.y;
     if(this.drag.kind==='node'){
-      // Preview visually without touching the reactive graph or rerendering Lit
-      // on every pointermove. Rebuilding SVG under a pressed pointer can lose
-      // pointerup events when Home Assistant re-renders its configuration dialog.
       const n=this.diagram.nodes.find(x=>x.id===this.drag?.id);
       if(n){
         const x=this.snap(this.drag.origin.x+dx),y=this.snap(this.drag.origin.y+dy);
         if(n.x!==x||n.y!==y){
-          this.drag.preview={x,y};this.drag.moved=true;
+          // Keep graph geometry and visible node in sync without a Lit render.
+          n.x=x;n.y=y;
+          this.drag.preview={x,y};
+          this.drag.moved=x!==this.drag.origin.x||y!==this.drag.origin.y;
           const element=this.drag.nodeElement;
-          if(element?.isConnected)
-            element.setAttribute('transform',`translate(${x-this.drag.origin.x} ${y-this.drag.origin.y})`);
+          if(element?.isConnected)element.setAttribute('transform',
+            `translate(${x-this.drag.origin.x} ${y-this.drag.origin.y})`);
+          this.scheduleLiveWires();
         }
       }
     }else{
@@ -236,15 +318,11 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   }
   private onPointerUp(ev:PointerEvent):void{
     if(!this.drag||(this.drag.pointerId!==undefined&&ev.pointerId!==this.drag.pointerId))return;
-    const drag=this.drag;
-    const hasTopologyChange=drag.kind!=='pan'&&!!drag.moved;
-    // Commit a device move ONCE after release, not during the gesture.
-    if(drag.kind==='node'&&drag.preview&&drag.id){
-      const node=this.diagram.nodes.find(n=>n.id===drag.id);
-      if(node){node.x=drag.preview.x;node.y=drag.preview.y;}
-    }
-    this.endDrag();
+    if(ev.type==='pointercancel'){this.endDrag();return;}
+    const hasTopologyChange=this.drag.kind!=='pan'&&!!this.drag.moved;
+    this.endDrag(true);
     if(hasTopologyChange)this.emit();
+    else this.requestUpdate();
   }
   private onPortDown(ev:PointerEvent,node:string,port:string):void{
     ev.preventDefault();ev.stopPropagation();

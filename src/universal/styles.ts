@@ -58,6 +58,42 @@ input,textarea{width:100%}
 .upfc-dialog .upfc-inspector{max-height:calc(100dvh - 250px);overflow:auto}
 .upfc-edge.selected path:not(.upfc-edge-hit){filter:drop-shadow(0 0 3px var(--primary-color,#03a9f4))}
 
+
+/* Browser Fullscreen API moves this surface into the top layer, above HA's
+ * card-configuration modal. CSS fixed alone was clipped by the HA dialog. */
+.upfc-fullscreen-workspace:fullscreen{
+  box-sizing:border-box;inset:0!important;margin:0!important;
+  width:100vw!important;height:100dvh!important;max-width:none!important;
+  max-height:none!important;padding:12px 16px!important;
+  border:0!important;border-radius:0!important;
+  overflow:hidden!important;background:var(--ha-card-background,var(--card-background-color,#17232d));
+  color:var(--primary-text-color,#eee);display:flex!important;
+  flex-direction:column;gap:4px;
+}
+.upfc-fullscreen-workspace:fullscreen .upfc-layout{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,25vw);
+  grid-template-rows:minmax(0,1fr);flex:1 1 auto;min-height:0;
+  overflow:hidden;align-items:stretch;
+}
+.upfc-fullscreen-workspace:fullscreen .upfc-canvas-shell{
+  min-width:0;min-height:0;height:100%;overflow:hidden;
+}
+.upfc-fullscreen-workspace:fullscreen .upfc-canvas{
+  box-sizing:border-box;width:100%;height:100%!important;min-height:0!important;
+  max-height:none!important;object-fit:contain;
+}
+.upfc-fullscreen-workspace:fullscreen .upfc-inspector{
+  min-height:0;max-height:none;height:100%;overflow-y:auto;
+}
+.upfc-fullscreen-workspace:fullscreen .upfc-toolbar{flex-shrink:0}
+.upfc-fullscreen-workspace:fullscreen .upfc-palette{flex-shrink:0}
+.upfc-fullscreen-workspace:fullscreen .upfc-subtle{
+  flex-shrink:0;margin:5px 0;
+}
+@media(max-width:850px){
+  .upfc-fullscreen-workspace:fullscreen .upfc-layout{grid-template-columns:minmax(0,1fr) minmax(220px,33vw);}
+}
+
 .upfc-entity-picker{padding:5px 0 8px;border-bottom:1px dotted var(--divider-color,#5b6770)}
 .upfc-entity-search{margin-top:5px;width:100%;border-color:var(--primary-color,#189ad4)}
 .upfc-entity-results{display:grid;gap:3px;max-height:250px;overflow-y:auto;padding:5px 0}

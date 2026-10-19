@@ -211,7 +211,7 @@ export function renderDiagram(o:CanvasOptions) {
       const color=e.color??CONNECTION_COLORS[kind],pathId=`${id}-flow-${e.id}`;
       const m=midpoint(points),active=watts!==null&&Math.abs(watts)>=0.1&&o.animate!==false;
       const duration=active?Math.max(0.5,Math.min(30,(8-Math.log10(Math.max(1,Math.abs(watts)))*1.25)/(e.animationSpeed??1))):6;
-      return svg`<g class="upfc-edge ${o.selectedEdge===e.id?'selected':''}">
+      return svg`<g data-upfc-edge="${e.id}" class="upfc-edge ${o.selectedEdge===e.id?'selected':''}">
         <path id="${pathId}" d="${pathOf(points)}" stroke="${color}"
           stroke-dasharray="${kind==='signal'?'7 5':watts===null?'5 4':''}" stroke-width="${(e.lineWidth??3)+(o.selectedEdge===e.id?2:0)}"
           fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="${watts===null?0.65:1}"/>
@@ -239,7 +239,7 @@ export function renderDiagram(o:CanvasOptions) {
       const value=n.stateEntity?o.hass?.states?.[n.stateEntity]?.state:undefined;
       const soc=n.socEntity?o.hass?.states?.[n.socEntity]?.state:undefined;
       const label=value===undefined?'':(value==='unknown'||value==='unavailable'?'—':value);
-      return svg`<g class="upfc-node ${o.selectedNode===n.id?'selected':''}"
+      return svg`<g data-upfc-node="${n.id}" class="upfc-node ${o.selectedNode===n.id?'selected':''}"
         @pointerdown=${(ev:PointerEvent)=>events?.nodeDown?.(ev,n.id)}
         @click=${(ev:MouseEvent)=>events?.nodeClick?.(ev,n.id)}
         tabindex="${edit?0:-1}" role="${edit?'button':'img'}" aria-label="${n.name}"
