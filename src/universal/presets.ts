@@ -1,4 +1,5 @@
-import { PowerNode, PowerPort, PortKind, PortDirection, PortSide, emptyDiagram, PowerDiagram, PowerConnection, makeId } from './model';
+import {compactLegacyDiagram} from './migration';
+import {PowerNode, PowerPort, PortKind, PortDirection, PortSide, emptyDiagram, PowerDiagram, PowerConnection, makeId } from './model';
 
 const p = (id: string, label: string, kind: PortKind, direction: PortDirection, side: PortSide): PowerPort =>
   ({id,label,kind,direction,side});
@@ -36,9 +37,14 @@ export const PRESETS: Record<string,{ name: string; icon: string; ports: PowerPo
 };
 export function createNode(type: string, x: number, y: number): PowerNode {
   const source = PRESETS[type] ?? PRESETS.custom;
-  return {id:makeId('node'),type,name:source.name,icon:source.icon,x,y,
-    width:type==='dc_bus'?170:156,height:type==='dc_bus'?210:106,
+  const raw:PowerNode={id:makeId('node'),type,name:source.name,icon:source.icon,
+    modelId:type==='battery'?'battery_rack':type==='inverter'?'hybrid_inverter':
+      type==='rectifier'?'rectifier_rack':type==='dc_bus'?'dc_busbar':
+      type==='solar'?'pv_panels':type==='generator'?'genset':
+      type==='ac_load'||type==='dc_load'?'telecom_server':type==='grid'?'grid_tower':type,
+    x,y,width:type==='dc_bus'?170:156,height:type==='dc_bus'?210:106,
     ports:source.ports.map(port=>({...port}))};
+  return compactLegacyDiagram({schemaVersion:1,width:1500,height:900,nodes:[raw],connections:[]}).diagram.nodes[0];
 }
 export function demoDiagram(): PowerDiagram {
   const d=emptyDiagram();d.width=1720;d.height=1090;
@@ -68,16 +74,11 @@ export function demoDiagram(): PowerDiagram {
   edge('ac_server','acbus','out1','servers','in');
   edge('ac_hvac','acbus','out2','hvac','in');
   edge('ac_rect','acbus','out3','rect','ac_in');
-  edge('bat_plus','battery','plus','bus','plus1');
-  edge('bat_minus','battery','minus','bus','minus1');
-  edge('rect_plus','rect','dc_plus','bus','plus5');
-  edge('rect_minus','rect','dc_minus','bus','minus5');
-  edge('bus_inv1_plus','bus','plus2','inv1','bat_plus');
-  edge('bus_inv1_minus','bus','minus2','inv1','bat_minus');
-  edge('bus_inv2_plus','bus','plus6','inv2','bat_plus');
-  edge('bus_inv2_minus','bus','minus6','inv2','bat_minus');
-  edge('bus_dc_plus','bus','plus7','dc_load','plus');
-  edge('bus_dc_minus','bus','minus7','dc_load','minus');
+  edge('bat_dc','battery','dc','bus','dc1');
+  edge('rect_dc','rect','dc','bus','dc5');
+  edge('bus_inv1','bus','dc2','inv1','bat_dc');
+  edge('bus_inv2','bus','dc6','inv2','bat_dc');
+  edge('bus_dc_load','bus','dc7','dc_load','dc');
   edge('inv2_load','inv2','load','offgrid','in');
   return d;
 }

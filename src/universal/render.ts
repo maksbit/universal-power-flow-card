@@ -1,6 +1,7 @@
 import { svg } from 'lit';
 import { Point, PowerDiagram, PowerNode, PowerPort, PowerConnection, PortKind } from './model';
 import {findOrthogonalPath, segmentHitsObstacle, equipmentObstacle} from './routing';
+import {drawDeviceModel, defaultModel} from './device-art';
 
 export interface HassLike { states: Record<string,{state:string;attributes?:Record<string,unknown>}> }
 export interface CanvasEvents {
@@ -26,7 +27,7 @@ export interface CanvasOptions {
   animate?: boolean;
 }
 export const CONNECTION_COLORS: Record<PortKind,string> = {
-  ac:'#f8b84e','dc+':'#e94848','dc-':'#555b67','pv+':'#e2b54b','pv-':'#777','signal':'#41a7db',
+  ac:'#f8b84e',dc:'#e95b5b',pv:'#d9bc5b','dc+':'#e94848','dc-':'#555b67','pv+':'#e2b54b','pv-':'#777','signal':'#41a7db',
 };
 const finite = (x:number):number => Number.isFinite(x)?x:0;
 const size = (node:PowerNode):{width:number;height:number} => ({width:node.width??156,height:node.height??106});
@@ -55,6 +56,35 @@ export function sensorPower(entity: string|undefined, hass?:HassLike): number|nu
   if(unit==='MW')return n*1000000;
   if(unit==='W')return n;
   return null;
+}
+export interface ResolvedPower {watts:number|null; entity:string|undefined; origin:'edge'|'node'|'none'}
+export function resolveEdgePower(diagram:PowerDiagram,e:PowerConnection,hass?:HassLike):ResolvedPower{
+  // Explicit sensor on a connection always has precedence, including unavailable.
+  if(e.powerEntity)return {watts:(()=>{
+    const measured=sensorPower(e.powerEntity,hass);
+    return measured===null?null:(e.invert?-measured:measured);
+  })(),entity:e.powerEntity,origin:'edge'};
+  const kind=diagram.nodes.find(n=>n.id===e.from.node)?.ports.find(p=>p.id===e.from.port)?.kind;
+  if(kind==='signal')return {watts:null,entity:undefined,origin:'none'};
+  for(const [nodeId,isSource] of [[e.from.node,true],[e.to.node,false]] as const){
+    const node=diagram.nodes.find(n=>n.id===nodeId);
+    if(!node?.powerEntity)continue;
+    // Never propagate aggregate inverter/bus readings to all branches or double-count:
+    // implicit telemetry only applies to a device with one connected power circuit.
+    const count=diagram.connections.filter(x=>{
+      if(x.from.node!==nodeId&&x.to.node!==nodeId)return false;
+      const portNode=x.from.node===nodeId?x.from:x.to;
+      const pk=node.ports.find(p=>p.id===portNode.port)?.kind;
+      return pk!=='signal';
+    }).length;
+    if(count!==1)continue;
+    const reading=sensorPower(node.powerEntity,hass);
+    const positiveSign=(node.powerPositive??'out')==='out'?1:-1;
+    const orientation=isSource?1:-1;
+    return {watts:reading===null?null:reading*positiveSign*orientation*(e.invert?-1:1),
+      entity:node.powerEntity,origin:'node'};
+  }
+  return {watts:null,entity:undefined,origin:'none'};
 }
 function powerText(w:number|null):string{
   if(w===null)return '—';
@@ -147,8 +177,8 @@ export function renderDiagram(o:CanvasOptions) {
       const points=connectionPoints(d,e,routed);
       if(!points)return svg`<g class="upfc-unroutable"><title>Cannot route connection ${e.id}: move equipment or adjust port positions</title></g>`;
       routed.push(points);
-      const power=sensorPower(e.powerEntity,o.hass);
-      const watts=power===null?null:(e.invert?-power:power);
+      const reading=resolveEdgePower(d,e,o.hass);
+      const watts=reading.watts;
       const kind=d.nodes.find(n=>n.id===e.from.node)?.ports.find(p=>p.id===e.from.port)?.kind??'signal';
       const color=e.color??CONNECTION_COLORS[kind],pathId=`${id}-flow-${e.id}`;
       const m=midpoint(points),active=watts!==null&&Math.abs(watts)>=0.1&&o.animate!==false;
@@ -160,11 +190,11 @@ export function renderDiagram(o:CanvasOptions) {
         <path class="upfc-edge-hit" d="${pathOf(points)}" @click=${()=>events?.edgeClick?.(e.id)}
           @dblclick=${(ev:MouseEvent)=>events?.edgeDoubleClick?.(ev,e.id)}/>
         ${active?svg`<circle r="5" fill="${color}" stroke="#fff" stroke-width="1">
-          <animateMotion dur="${duration}s" repeatCount="indefinite" keyPoints="${watts!<0?'1;0':'0;1'}" keyTimes="0;1" calcMode="linear">
-            <mpath href="#${pathId}"/>
-          </animateMotion>
+          <animateMotion path="${pathOf(points)}" dur="${duration}s" repeatCount="indefinite"
+            keyPoints="${watts!<0?'1;0':'0;1'}" keyTimes="0;1" calcMode="linear"/>
+
         </circle>`:svg``}
-        ${e.powerEntity||e.name?svg`<g class="upfc-edge-label" transform="translate(${m.x} ${m.y-12})">
+        ${reading.entity||e.name?svg`<g class="upfc-edge-label" transform="translate(${m.x} ${m.y-12})">
           <rect x="-62" y="-13" width="124" height="22" rx="6" fill="var(--ha-card-background,var(--card-background-color,#192632))" stroke="${color}" stroke-opacity=".6"/>
           <text text-anchor="middle" font-size="12" fill="var(--primary-text-color,#ddd)">${e.name?e.name+': ':''}${powerText(watts)}</text>
         </g>`:svg``}
@@ -182,20 +212,23 @@ export function renderDiagram(o:CanvasOptions) {
         <g transform="translate(${cx} ${cy}) rotate(${n.rotation??0}) scale(${n.scale??1}) translate(${-cx} ${-cy})">
           <rect x="${n.x}" y="${n.y}" width="${w}" height="${h}" rx="10" class="upfc-node-box"/>
           <rect x="${n.x}" y="${n.y}" width="${w}" height="5" rx="3" fill="#4c9bc5"/>
-          <foreignObject x="${n.x+12}" y="${n.y+20}" width="33" height="34">
-            <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;align-items:center;justify-content:center;color:var(--primary-text-color,#eee)">
-              <ha-icon icon="${n.icon?.startsWith('mdi:')?n.icon:'mdi:chip'}"></ha-icon>
-            </div>
-          </foreignObject>
-          <text x="${n.x+w/2+17}" y="${n.y+30}" text-anchor="middle" class="upfc-node-title">${n.name}</text>
-          ${label?svg`<text x="${cx}" y="${n.y+h-30}" text-anchor="middle" class="upfc-node-status">${label}</text>`:svg``}
-          ${soc?svg`<text x="${cx}" y="${n.y+h-13}" text-anchor="middle" class="upfc-node-status">SOC ${soc}%</text>`:svg``}
+          <svg x="${n.x+10}" y="${n.y+25}" width="${Math.min(75,w*.46)}" height="${Math.min(70,h-27)}"
+            viewBox="0 0 100 85" overflow="visible" aria-label="${n.modelId??defaultModel(n.type)}">
+            ${drawDeviceModel(n.modelId??defaultModel(n.type))}
+          </svg>
+          <text x="${n.x+w/2}" y="${n.y+19}" text-anchor="middle" class="upfc-node-title">${n.name}</text>
+          ${n.powerEntity?svg`<text x="${n.x+w*.73}" y="${n.y+h-37}" text-anchor="middle"
+            class="upfc-node-status">${powerText(sensorPower(n.powerEntity,o.hass))}</text>`:svg``}
+          ${label?svg`<text x="${n.x+w*.73}" y="${n.y+h-25}" text-anchor="middle" class="upfc-node-status">${label}</text>`:svg``}
+          ${soc?svg`<text x="${n.x+w*.73}" y="${n.y+h-13}" text-anchor="middle" class="upfc-node-status">SOC ${soc}%</text>`:svg``}
+          ${n.voltageEntity?svg`<text x="${n.x+w*.73}" y="${n.y+h-3}" text-anchor="middle"
+            class="upfc-node-status">${o.hass?.states[n.voltageEntity]?.state??'—'} V</text>`:svg``}
         </g>
-        ${n.ports.map(p=>{const xy=portPosition(n,p);return svg`
+        ${edit?n.ports.map(p=>{const xy=portPosition(n,p);return svg`
           <g class="upfc-port" @pointerdown=${(ev:PointerEvent)=>events?.portDown?.(ev,n.id,p.id)}>
             <circle cx="${xy.x}" cy="${xy.y}" r="${edit?8:5}" fill="${CONNECTION_COLORS[p.kind]}" stroke="var(--primary-background-color,#1c2934)" stroke-width="2"/>
             ${edit?svg`<title>${p.label} [${p.kind}, ${p.direction}] — click to connect</title>`:svg``}
-          </g>`;})}
+          </g>`;}) : svg``}
       </g>`;
     })}
   </svg>`;

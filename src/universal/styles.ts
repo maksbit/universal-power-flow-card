@@ -49,6 +49,17 @@ input,textarea{width:100%}
 .upfc-dialog .upfc-canvas-shell{min-height:450px}
 .upfc-dialog .upfc-inspector{max-height:calc(100dvh - 250px);overflow:auto}
 .upfc-edge.selected path:not(.upfc-edge-hit){filter:drop-shadow(0 0 3px var(--primary-color,#03a9f4))}
+
+.upfc-entity-picker{padding:5px 0 8px;border-bottom:1px dotted var(--divider-color,#5b6770)}
+.upfc-entity-search{margin-top:5px;width:100%;border-color:var(--primary-color,#189ad4)}
+.upfc-entity-results{display:grid;gap:3px;max-height:250px;overflow-y:auto;padding:5px 0}
+.upfc-entity-results button{display:flex;gap:7px;justify-content:space-between;align-items:center;text-align:left;
+  font-size:12px;padding:7px;max-width:100%;border:1px solid var(--divider-color,#667786)}
+.upfc-entity-results button:hover{border-color:var(--primary-color,#189ad4)}
+.upfc-entity-results span{min-width:0;overflow-wrap:anywhere}
+.upfc-entity-results small{display:block;font-size:10px;opacity:.68;word-break:break-all}
+.upfc-entity-results strong{white-space:nowrap;font-size:12px}
+.upfc-compact-workspace[hidden]{display:none}
 @media(max-width:850px){
   .upfc-dialog .upfc-layout{grid-template-columns:1fr}
   .upfc-dialog .upfc-canvas{height:60vh;min-height:300px}

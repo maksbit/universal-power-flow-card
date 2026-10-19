@@ -1,5 +1,5 @@
 /** Universal electrical topology model. No HA dependencies: safe to test in isolation. */
-export type PortKind = 'ac' | 'dc+' | 'dc-' | 'pv+' | 'pv-' | 'signal';
+export type PortKind = 'ac' | 'dc' | 'pv' | 'dc+' | 'dc-' | 'pv+' | 'pv-' | 'signal';
 export type PortDirection = 'in' | 'out' | 'both';
 export type PortSide = 'left' | 'right' | 'top' | 'bottom';
 export type Point = { x: number; y: number };
@@ -15,6 +15,14 @@ export interface PowerNode extends Point {
   type: string;
   name: string;
   icon?: string;
+  /** Built-in editable vector artwork, not an external image URL. */
+  modelId?: string;
+  /** Signed equipment power reading (W/kW/MW). */
+  powerEntity?: string;
+  /** How to interpret a positive device power value. */
+  powerPositive?: 'out' | 'in';
+  voltageEntity?: string;
+  currentEntity?: string;
   width?: number;
   height?: number;
   rotation?: number;
@@ -55,7 +63,7 @@ export interface CardConfig {
   library?: PowerNode[];
   animation?: boolean;
 }
-export const PORT_KINDS: PortKind[] = ['ac','dc+','dc-','pv+','pv-','signal'];
+export const PORT_KINDS: PortKind[] = ['ac','dc','pv','dc+','dc-','pv+','pv-','signal'];
 export const PORT_SIDES: PortSide[] = ['left','right','top','bottom'];
 export const PORT_DIRECTIONS: PortDirection[] = ['in','out','both'];
 const validId = (s: unknown): s is string => typeof s === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(s);

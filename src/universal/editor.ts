@@ -7,6 +7,9 @@ import {CardConfig,PowerNode,PowerConnection,PowerPort,PowerDiagram,
 import {PRESETS,createNode,demoDiagram} from './presets';
 import {renderDiagram,CanvasEvents,connectionPoints} from './render';
 import {universalStyles} from './styles';
+import {SVG_MODELS,defaultModel} from './device-art';
+import {filteredEntities,SensorKind} from './entities';
+import {compactLegacyDiagram} from './migration';
 
 type Drag = {kind:'node'|'waypoint'|'pan';id?:string;index?:number;
   start:Point;origin:Point;moved?:boolean};
@@ -24,6 +27,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   @state() private pan:Point={x:0,y:0};
   @state() private expanded=false;
   @state() private revision=0;
+  @state() private entitySearch:Record<string,string>={};
   private drag?:Drag;
   private readonly instanceId=makeId('editor');
   private readonly moveListener=(ev:PointerEvent)=>this.onPointerMove(ev);
@@ -50,14 +54,19 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     ev.preventDefault();this.deleteSelected();
   }
   private async openExpanded():Promise<void>{
-    this.expanded=true;
-    await this.updateComplete;
     const dialog=this.renderRoot.querySelector<HTMLDialogElement>('dialog.upfc-dialog');
-    if(dialog && !dialog.open)dialog.showModal();
+    if(!dialog){this.notice='Full-screen dialog is not ready';return;}
+    if(!dialog.open){
+      try{dialog.showModal();}catch(e){this.notice='Unable to open editor: '+String(e);return;}
+    }
+    this.expanded=true;
+    this.requestUpdate();
+    await this.updateComplete;
   }
   private closeExpanded():void{
     this.endDrag();
-    this.renderRoot.querySelector<HTMLDialogElement>('dialog.upfc-dialog')?.close();
+    const dialog=this.renderRoot.querySelector<HTMLDialogElement>('dialog.upfc-dialog');
+    if(dialog?.open)dialog.close();
     this.expanded=false;
   }
   private startDrag(next:Drag):void{
@@ -83,10 +92,13 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   };
   public setConfig(c:CardConfig):void{
     try{
-      this.config={...c,diagram:c.diagram?parseDiagram(c.diagram):demoDiagram(),library:c.library??[]};
+      const original=c.diagram?parseDiagram(c.diagram):demoDiagram();
+      const migrated=compactLegacyDiagram(original);
+      this.config={...c,diagram:migrated.diagram,library:c.library??[]};
       this.revision++;
       this.requestUpdate();
-      this.notice='';
+      this.notice=migrated.warning??(migrated.changed?
+        `Old +/- wires unified into ${migrated.mergedEdges} logical circuits; save any edit to persist`:'');
     }catch(e){this.notice=String(e);this.config={type:'custom:universal-power-flow-card',diagram:demoDiagram()};this.revision++;this.requestUpdate();}
   }
   private get diagram():PowerDiagram{return this.config.diagram??demoDiagram();}
@@ -103,7 +115,11 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
       detail:{config:next},bubbles:true,composed:true
     }));
   }
-  private get svgEl():SVGSVGElement|null{return this.renderRoot.querySelector('svg.upfc-canvas');}
+  private get svgEl():SVGSVGElement|null{
+    return this.expanded?
+      this.renderRoot.querySelector('dialog.upfc-dialog svg.upfc-canvas'):
+      this.renderRoot.querySelector('.upfc-compact-workspace svg.upfc-canvas');
+  }
   private at(ev:PointerEvent|DragEvent|MouseEvent):Point{
     const el=this.svgEl;if(!el)return{x:0,y:0};
     const mat=el.getScreenCTM();
@@ -317,16 +333,50 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
       ${(this.config.library??[]).map(n=>html`<option value="lib:${n.id}">★ ${n.name}</option>`)}
     `;
   }
-  private entityInput(value:string|undefined,update:(id:string)=>void){
-    return html`<input type="text" list="upfc-entities" placeholder="sensor.example_power"
-      .value=${value??''} @change=${(e:Event)=>update((e.currentTarget as HTMLInputElement).value.trim())}/>`;
+  private entityInput(key:string,kind:SensorKind,value:string|undefined,update:(id:string)=>void){
+    const query=this.entitySearch[key]??'';
+    const matches=query.trim().length>=2?filteredEntities(this.hass,kind,query,12):[];
+    return html`<div class="upfc-entity-picker">
+      <input type="text" placeholder="sensor.entity_id" .value=${value??''}
+        @change=${(e:Event)=>update((e.currentTarget as HTMLInputElement).value.trim())}/>
+      <input type="search" class="upfc-entity-search" placeholder="Поиск по названию или entity_id (${kind})"
+        .value=${query} @input=${(e:Event)=>{
+          this.entitySearch={...this.entitySearch,[key]:(e.currentTarget as HTMLInputElement).value};
+        }}/>
+      ${matches.length?html`<div class="upfc-entity-results">
+        ${matches.map(m=>html`<button type="button" title="${m.id}" @click=${()=>{
+          update(m.id);this.entitySearch={...this.entitySearch,[key]:''};
+        }}>
+          <span>${m.label}<small>${m.id}</small></span>
+          <strong>${m.state} ${m.unit}</strong>
+        </button>`)}
+      </div>`:query.trim().length>=2?html`<div class="upfc-subtle">Ничего не найдено среди датчиков категории ${kind}. Entity ID можно вписать вручную.</div>`:nothing}
+    </div>`;
   }
   private renderNodeInspector(n:PowerNode){
     return html`<h4>Equipment · ${n.type}</h4>
       <label>Label</label><input .value=${n.name} @change=${(e:Event)=>this.changeNode('name',(e.currentTarget as HTMLInputElement).value)}/>
-      <label>Icon (mdi:...)</label><input .value=${n.icon??''} @change=${(e:Event)=>this.changeNode('icon',(e.currentTarget as HTMLInputElement).value)}/>
-      <label>Entity state (optional)</label>${this.entityInput(n.stateEntity,v=>this.changeNode('stateEntity',v))}
-      <label>Battery SOC entity (optional)</label>${this.entityInput(n.socEntity,v=>this.changeNode('socEntity',v))}
+      <label>SVG-модель оборудования</label>
+      <select .value=${n.modelId??defaultModel(n.type)}
+        @change=${(e:Event)=>this.changeNode('modelId',(e.currentTarget as HTMLSelectElement).value)}>
+        ${Object.entries(SVG_MODELS).map(([id,label])=>html`<option value="${id}">${label}</option>`)}
+      </select>
+      <label>Мощность устройства (W/kW/MW) — запускает поток при одной связи</label>
+      ${this.entityInput('node-power:'+n.id,'power',n.powerEntity,v=>this.changeNode('powerEntity',v))}
+      <label>Как трактовать положительную мощность</label>
+      <select .value=${n.powerPositive??'out'} @change=${(e:Event)=>
+        this.changeNode('powerPositive',(e.currentTarget as HTMLSelectElement).value as 'out'|'in')}>
+        <option value="out">Положительное = отдаёт энергию (разряд батареи)</option>
+        <option value="in">Положительное = принимает энергию (заряд батареи)</option>
+      </select>
+      <label>SOC аккумулятора (%)</label>
+      ${this.entityInput('node-soc:'+n.id,'soc',n.socEntity,v=>this.changeNode('socEntity',v))}
+      <label>Напряжение (V)</label>
+      ${this.entityInput('node-voltage:'+n.id,'voltage',n.voltageEntity,v=>this.changeNode('voltageEntity',v))}
+      <label>Ток (A)</label>
+      ${this.entityInput('node-current:'+n.id,'current',n.currentEntity,v=>this.changeNode('currentEntity',v))}
+      <label>Дополнительный статус</label>
+      ${this.entityInput('node-state:'+n.id,'any',n.stateEntity,v=>this.changeNode('stateEntity',v))}
       <div class="upfc-port-row">
         <div><label>Rotation</label><select .value=${String(n.rotation??0)} @change=${(e:Event)=>this.changeNode('rotation',Number((e.currentTarget as HTMLSelectElement).value))}>
           ${[0,90,180,270].map(x=>html`<option value="${x}">${x}°</option>`)}</select></div>
@@ -364,10 +414,10 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
       <div class="upfc-subtle">${e.from.node}/${e.from.port} → ${e.to.node}/${e.to.port}</div>
       <label>Label (optional)</label><input .value=${e.name??''}
         @change=${(ev:Event)=>this.changeEdge('name',(ev.currentTarget as HTMLInputElement).value)}/>
-      <label>Power sensor (W/kW/MW)</label>${this.entityInput(e.powerEntity,v=>this.changeEdge('powerEntity',v))}
+      <label>Power sensor (W/kW/MW)</label>${this.entityInput('edge-power:'+e.id,'power',e.powerEntity,v=>this.changeEdge('powerEntity',v))}
       <label><input type="checkbox" style="width:auto" .checked=${!!e.invert}
         @change=${(ev:Event)=>this.changeEdge('invert',(ev.currentTarget as HTMLInputElement).checked)}/> Reverse positive direction</label>
-      <p class="upfc-subtle">Positive: source → target; negative: target → source; unavailable: no animation.</p>
+      <p class="upfc-subtle">Мощность линии имеет приоритет. Если её нет, используется мощность устройства только при одной энергосвязи. Нулевое или недоступное измерение останавливает анимацию.</p>
       <h4>Wire routing</h4>
       <label>Mode</label>
       <select .value=${e.route??'auto'} @change=${(ev:Event)=>{
@@ -468,25 +518,27 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
                 this.config.diagram=demoDiagram();this.nodeId='';this.edgeId='';this.emit();}}}>Restore telecom example</button>`}
         </aside>
       </div>
-      <datalist id="upfc-entities">${this.hass?
-        Object.keys(this.hass.states).filter(id=>id.startsWith('sensor.')||id.startsWith('binary_sensor.'))
-          .sort().map(id=>html`<option value="${id}"></option>`):nothing}</datalist>
+
     `;
   }
   protected render(){
+    // Persistent dialog: never conditionally remove a showModal() element.
     return html`<ha-card class="upfc-editor-card">
       <div class="upfc-toolbar">
         <h3>Universal Power Flow Designer</h3>
         <button class="primary" @click=${()=>void this.openExpanded()}>⛶ Full-screen editor</button>
       </div>
-      ${this.expanded?html`<p class="upfc-subtle">Editor is open in full-screen mode.</p>
-        <dialog class="upfc-dialog" @cancel=${(ev:Event)=>{ev.preventDefault();this.closeExpanded();}}>
-          <div class="upfc-toolbar">
-            <h3>Universal Power Flow Designer · full screen</h3>
-            <button @click=${()=>this.closeExpanded()}>✕ Close full screen</button>
-          </div>
-          ${this.renderWorkspace()}
-        </dialog>`:this.renderWorkspace()}
+      <div class="upfc-compact-workspace" ?hidden=${this.expanded}>
+        ${!this.expanded?this.renderWorkspace():nothing}
+      </div>
+      <dialog class="upfc-dialog" @cancel=${(ev:Event)=>{ev.preventDefault();this.closeExpanded();}}
+        @close=${()=>{if(this.expanded)this.expanded=false;}}>
+        <div class="upfc-toolbar">
+          <h3>Universal Power Flow Designer · full screen</h3>
+          <button @click=${()=>this.closeExpanded()}>✕ Close full screen</button>
+        </div>
+        ${this.expanded?this.renderWorkspace():nothing}
+      </dialog>
     </ha-card>`;
   }
 }
