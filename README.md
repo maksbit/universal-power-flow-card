@@ -21,6 +21,19 @@ title: Telecom power infrastructure
 
 The card initially shows the **example topology** with no animated values; telemetry is not fabricated. Open the visual editor to bind each edge to its power sensor.
 
+## v0.2.2 — interactive editor reliability
+
+Home Assistant's own configuration editor already operates within a dialog. This release avoids opening a second native modal, which could swallow focus and pointer events. The large workspace is now a fixed in-component overlay.
+
+- A **single click** selects a device immediately; no dragging needed. Mouse movement under 6 px is treated as a click.
+- Dragging records the pointer ID and releases all handlers on pointerup, cancel, blur and visibility loss. No stuck drag after selecting or moving one device.
+- Lit now explicitly schedules UI updates for selection, fullscreen, zoom, pan, port selection, deletion warnings and entity suggestions. Some build configurations did not reliably observe decorated state field mutations.
+- Deleting a connected device uses **two-stage inline confirmation** rather than a nested browser prompt.
+- Repeated Home Assistant configuration echoes do not overwrite edits while the fullscreen workspace is active.
+- Real Chromium end-to-end tests are run on the self-hosted CI inside the official Playwright Docker image. They cover fullscreen opening, single-click selection, editing, adding, dragging, deletion, entity search/selection, config echoes and modal reopening.
+
+**Safety:** Export your current diagram to JSON before testing a new release. The current Home Assistant dashboard remains unchanged until you save your edits.
+
 ## v0.2.1 — Home Assistant sensor picker and flow diagnostics
 
 - Entity selection uses a dedicated, continuously visible autocomplete component with a search input and suggestions from the first keystroke, not the former delayed two-character list. Choose a sensor by friendly name or entity ID, inspect its live state and unit, or enable **Показать все сенсоры** to find custom integration entities including `input_number.*`.
