@@ -50,6 +50,7 @@ export class UpfcEntityPicker extends LitElement{
   private choose(value:string):void{
     this.focused=false;
     this.search='';
+    this.requestUpdate();
     this.dispatchEvent(new CustomEvent('entity-selected',{detail:{value},bubbles:true,composed:true}));
   }
   private get candidates():EntityOption[]{
@@ -58,7 +59,7 @@ export class UpfcEntityPicker extends LitElement{
     return filteredEntities(this.hass,this.showAll?'any':this.kind,this.search,25);
   }
   private onKeyDown(e:KeyboardEvent):void{
-    if(e.key==='Escape'){this.focused=false;return;}
+    if(e.key==='Escape'){this.focused=false;this.requestUpdate();return;}
     if(e.key==='Enter'){
       e.preventDefault();
       const first=this.candidates[0];
@@ -77,7 +78,7 @@ export class UpfcEntityPicker extends LitElement{
         <span>${this.kind==='power'?'Мощность (W / kW / MW)':this.kind==='soc'?'Заряд батареи (%)':
           this.kind==='voltage'?'Напряжение':this.kind==='current'?'Ток':
           this.kind==='energy'?'Энергия':'Сущность Home Assistant'}</span>
-        <button type="button" class="mode" @click=${()=>{this.showAll=!this.showAll;this.focused=true;}}>
+        <button type="button" class="mode" @click=${()=>{this.showAll=!this.showAll;this.focused=true;this.requestUpdate();}}>
           ${this.showAll?'✓ Все датчики':'Показать все сенсоры'}
         </button>
       </div>
@@ -89,8 +90,8 @@ export class UpfcEntityPicker extends LitElement{
       <input type="search" autocomplete="off" spellcheck="false" aria-label="Поиск сущности Home Assistant"
         placeholder="🔎 Начните вводить название или entity_id"
         .value=${this.search}
-        @focus=${()=>this.focused=true}
-        @input=${(ev:Event)=>{this.search=(ev.currentTarget as HTMLInputElement).value;this.focused=true;}}
+        @focus=${()=>{this.focused=true;this.requestUpdate();}}
+        @input=${(ev:Event)=>{this.search=(ev.currentTarget as HTMLInputElement).value;this.focused=true;this.requestUpdate();}}
         @keydown=${(ev:KeyboardEvent)=>this.onKeyDown(ev)}/>
       ${showResults?html`<div class="results" role="listbox">
         ${matches.length?matches.map(item=>html`<button class="result" type="button" role="option"
