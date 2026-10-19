@@ -217,12 +217,14 @@ export function renderDiagram(o:CanvasOptions) {
             ${drawDeviceModel(n.modelId??defaultModel(n.type))}
           </svg>
           <text x="${n.x+w/2}" y="${n.y+19}" text-anchor="middle" class="upfc-node-title">${n.name}</text>
-          ${n.powerEntity?svg`<text x="${n.x+w*.73}" y="${n.y+h-37}" text-anchor="middle"
+          ${n.powerEntity?svg`<text x="${n.x+w*.73}" y="${n.y+h-53}" text-anchor="middle"
             class="upfc-node-status">${powerText(sensorPower(n.powerEntity,o.hass))}</text>`:svg``}
-          ${label?svg`<text x="${n.x+w*.73}" y="${n.y+h-25}" text-anchor="middle" class="upfc-node-status">${label}</text>`:svg``}
-          ${soc?svg`<text x="${n.x+w*.73}" y="${n.y+h-13}" text-anchor="middle" class="upfc-node-status">SOC ${soc}%</text>`:svg``}
-          ${n.voltageEntity?svg`<text x="${n.x+w*.73}" y="${n.y+h-3}" text-anchor="middle"
+          ${label?svg`<text x="${n.x+w*.73}" y="${n.y+h-41}" text-anchor="middle" class="upfc-node-status">${label}</text>`:svg``}
+          ${soc?svg`<text x="${n.x+w*.73}" y="${n.y+h-29}" text-anchor="middle" class="upfc-node-status">SOC ${soc}%</text>`:svg``}
+          ${n.voltageEntity?svg`<text x="${n.x+w*.73}" y="${n.y+h-17}" text-anchor="middle"
             class="upfc-node-status">${o.hass?.states[n.voltageEntity]?.state??'—'} V</text>`:svg``}
+          ${n.currentEntity?svg`<text x="${n.x+w*.73}" y="${n.y+h-5}" text-anchor="middle"
+            class="upfc-node-status">${o.hass?.states[n.currentEntity]?.state??'—'} A</text>`:svg``}
         </g>
         ${edit?n.ports.map(p=>{const xy=portPosition(n,p);return svg`
           <g class="upfc-port" @pointerdown=${(ev:PointerEvent)=>events?.portDown?.(ev,n.id,p.id)}>
