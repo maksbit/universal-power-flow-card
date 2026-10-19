@@ -1,6 +1,6 @@
 {
   "name": "universal-power-flow-card",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Universal AC/DC power topology designer and animated Home Assistant Lovelace card",
   "main": "dist/universal-power-flow-card.js",
   "prettier": {
@@ -22,7 +22,8 @@
     "docs-build": "sphinx-autobuild docs docs/_build/html",
     "prepare": "husky",
     "test": "tsx --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:browser": "node tests/editor-browser.mjs"
   },
   "repository": {
     "type": "git",
@@ -72,7 +73,8 @@
     "typescript": "^5.4.5",
     "typescript-eslint": "^8.1.0",
     "tsx": "^4.20.5",
-    "@babel/preset-typescript": "^7.27.1"
+    "@babel/preset-typescript": "^7.27.1",
+    "playwright": "^1.56.1"
   },
   "lint-staged": {
     "*.{js,ts,json,md,yml,yaml}": [
