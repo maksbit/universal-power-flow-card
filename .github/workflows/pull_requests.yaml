@@ -21,7 +21,7 @@ jobs:
           echo "runner_name=${RUNNER_NAME}"
           echo "runner_os=${RUNNER_OS}"
           echo "host=$(hostname)"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - name: Install
