@@ -32,6 +32,10 @@ jobs:
         run: npm test
       - name: Build distinct HACS resource
         run: npm run build
+      - name: Install Chromium headless for browser acceptance tests
+        run: npx playwright install chromium-headless-shell
+      - name: Browser E2E (click, drag, delete, HA config echoes)
+        run: npm run test:browser
       - name: Assert independently named component
         run: |
           test -s dist/universal-power-flow-card.js
