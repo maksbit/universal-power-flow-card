@@ -21,6 +21,16 @@ title: Telecom power infrastructure
 
 The card initially shows the **example topology** with no animated values; telemetry is not fabricated. Open the visual editor to bind each edge to its power sensor.
 
+## v0.2.0 — logical power flow and native SVG equipment
+
+- DC and PV circuits are **one logical power-flow connection each**, not individual DC+ and DC− conductors. This is a live dashboard, not a wiring design. AC, DC, PV and generator-start/control stay distinct.
+- Existing v0.1.x saved diagrams are upgraded in memory from DC+/DC− pairs to logical DC links. Device positions, explicit waypoints and HA power-entity bindings are retained. A conflicting sensor pair is left unchanged with a warning to prevent silent data loss. The converted diagram is persisted on the next user edit; export JSON first if you want a snapshot.
+- Built-in inline SVG artwork: battery rack/cell, hybrid and wall inverters, rectifier shelf/converter, DC busbar, AC distribution, PV, generator, grid, telecom server. Select a model in the node inspector. The model library is bundled in JS and works offline.
+- Full-screen editor dialog stays mounted while Lit and HA re-render; opens directly on clicking the button rather than being recreated reactively.
+- Home Assistant entities are selected with **typed, searchable suggestions** filtered by domain, device class, units and friendly name. Separate power, SOC, voltage, current and status inputs are provided. Direct entity_id input remains supported.
+- **Direction comes only from a numeric power sensor (W/kW/MW).** Assign it to a connection (highest priority), or to an equipment node with exactly one power connection (e.g., battery rack) to animate that link. Use **positive means outgoing/incoming** for charge/discharge sensor sign conventions. A node with several power links (e.g., inverter or bus) never automatically projects one aggregate meter onto all branches; bind those edges separately.
+- The power sensor's signed value sets animation direction. SOC/voltage/current are telemetry on the device, and do not infer flow direction. Zero/unknown/unavailable readings do not animate.
+
 ## Visual editor
 
 **v0.1.3:** Obstacle-aware Manhattan pathfinding avoids component boxes with clearance, replans lines when devices move, and discourages overlapping wiring corridors. The editor now sends immutable configuration snapshots and triggers a dedicated reactive refresh on each edit, so deletions and parameter changes should immediately affect the canvas and Lovelace preview. If an automatic route is impossible, the editor reports it rather than silently drawing a line through equipment. Manual bend points and straight mode remain explicit user overrides and may cross equipment; inspect those links visually.
@@ -32,7 +42,7 @@ The card initially shows the **example topology** with no animated values; telem
 
 - Drag equipment from the palette onto the canvas or use **+ Add**.
 - Move devices by dragging them; Shift+drag an empty background to pan; Ctrl+wheel or +/- buttons to zoom.
-- Click the **source port**, then the **target port** to connect. AC, DC positive, DC negative, PV and control/signal cannot be mixed.
+- Click the **source port**, then the **target port** to connect. AC, logical DC, logical PV and control/signal cannot be mixed.
 - Select a connection to bind a Home Assistant power entity (W/kW/MW), invert its sign, add or drag bend points, or use automatic orthogonal routing.
 - Select equipment to edit its name, icon (`mdi:...`), size, scale, rotation, optional status/SOC entity, and electrical ports.
 - Use **Save as component** to store customized equipment templates in this card's configuration.
@@ -44,9 +54,9 @@ The card initially shows the **example topology** with no animated values; telem
 | Wire | Port kind | Appearance |
 |---|---|---|
 | AC | `ac` | amber |
-| 48V DC positive | `dc+` | red |
-| 48V DC negative | `dc-` | dark |
-| Photovoltaic +/- | `pv+`, `pv-` | gold / gray |
+| 48V DC power circuit | `dc` | red |
+| Photovoltaic power circuit | `pv` | gold |
+| Legacy polarity pairs (migration only) | `dc+`/`dc-`, `pv+`/`pv-` | converted to logical links |
 | Generator start / signalling | `signal` | blue dashed |
 
 A positive power-sensor reading animates **from source to target**, a negative reading reverses direction. Use **Invert flow direction** when a meter has the opposite sign convention. Zero/unknown/unavailable readings do not animate; **unknown is never silently interpreted as zero**. Circuit power must be measured independently: sums of common-bus, inverter and rectifier powers can double count recirculated energy.
@@ -55,7 +65,7 @@ Port compatibility checks are **diagramming safeguards**, not full electrical-de
 
 ## Example: dual-Deye telecom site
 
-The starter diagram illustrates external GRID → Deye #1 GRID; generator AC → Deye #1 GEN with a separate start signal; Deye #1 LOAD → AC distribution, AC loads and AC/DC rectifier; rectifier DC+/− → shared 48V bus; battery DC+/− and both Deye BAT+/− ports → **the same bus**; Deye #2 LOAD → separate off-grid AC load; telecom DC servers connected to the DC bus through DC+/− connections. The DC bus is **not an AC load**. Values stay unavailable until sensors are configured.
+The starter diagram illustrates external GRID → Deye #1 GRID; generator AC → Deye #1 GEN with a separate start signal; Deye #1 LOAD → AC distribution, AC loads and AC/DC rectifier; rectifier DC+/− → shared 48V bus; battery DC power and both Deye BAT DC ports → **the same bus**; Deye #2 LOAD → separate off-grid AC load; telecom DC servers connected to the common DC bus through one logical DC link each. The DC bus is **not an AC load**. Values stay unavailable until sensors are configured.
 
 ## Technology
 

@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {cloneDiagram,parseDiagram,portCompatible,validateDiagram,PowerPort} from '../src/universal/model';
 import {createNode,demoDiagram} from '../src/universal/presets';
-import {connectionPoints,sensorPower,portPosition,automaticLaneOffset} from '../src/universal/render';
+import {connectionPoints,sensorPower,portPosition,automaticLaneOffset,resolveEdgePower} from '../src/universal/render';
+import {compactLegacyDiagram} from '../src/universal/migration';
+import {PRESETS} from '../src/universal/presets';
+import {SVG_MODELS} from '../src/universal/device-art';
+import {filteredEntities} from '../src/universal/entities';
 import {equipmentObstacle,findOrthogonalPath,pathHitsEquipment,segmentHitsObstacle} from '../src/universal/routing';
 
 test('telecom topology demo is electrically and structurally valid',()=>{
@@ -20,7 +24,7 @@ test('reject AC-to-DC shorts and mismatched polarity',()=>{
   assert.equal(portCompatible({...plus,direction:'in'}, {...plus,id:'in2',direction:'in'}),false);
 });
 test('invalid connection is reported and import rejected',()=>{
-  const d=demoDiagram();d.connections.push({id:'bad',from:{node:'grid',port:'out'},to:{node:'battery',port:'plus'}});
+  const d=demoDiagram();d.connections.push({id:'bad',from:{node:'grid',port:'out'},to:{node:'battery',port:'dc'}});
   assert.ok(validateDiagram(d).some(s=>s.includes('Incompatible ports')));
   assert.throws(()=>parseDiagram(d),/Incompatible ports/);
 });
@@ -36,12 +40,15 @@ test('defensive clone isolates changes',()=>{
   copy.nodes[0].x=999;
   assert.notEqual(d.nodes[0].x,999);
 });
-test('positive DC+ and DC- connections remain separate',()=>{
+test('DC and PV are a single logical flow per physical circuit',()=>{
   const d=demoDiagram();
-  const positive=d.connections.find(e=>e.id==='rect_plus');
-  const negative=d.connections.find(e=>e.id==='rect_minus');
-  assert.ok(positive&&negative);
-  assert.notEqual(positive?.to.port,negative?.to.port);
+  const positive=d.connections.find(e=>e.id==='rect_dc');
+  assert.ok(positive);
+  assert.equal(positive?.to.port,'dc5');
+  assert.equal(d.connections.find(e=>e.id==='rect_minus'),undefined);
+  const battery=d.nodes.find(n=>n.id==='battery')!;
+  assert.deepEqual(battery.ports.map(p=>p.kind),['dc']);
+  assert.deepEqual(validateDiagram(d),[]);
 });
 test('port positioning honors 90 degree rotation',()=>{
   const node=createNode('grid',10,20);
@@ -164,4 +171,74 @@ test('line-line overlap carries a lane cost and separate route source is determi
   assert.ok(p&&p.length>=2);
   const again=connectionPoints(d,e);
   assert.deepEqual(p,again);
+});
+
+test('legacy polarity upgrade merges one DC circuit without losing entity/geometry',()=>{
+  const d=demoDiagram();
+  const battery=d.nodes.find(n=>n.id==='battery')!,bus=d.nodes.find(n=>n.id==='bus')!;
+  battery.ports=PRESETS.battery.ports.map(p=>({...p}));
+  bus.ports=PRESETS.dc_bus.ports.map(p=>({...p}));
+  // Build a self-contained, valid v0.1.x fixture with both physical conductors.
+  d.connections=[
+    {id:'old_pos',from:{node:'battery',port:'plus'},to:{node:'bus',port:'plus1'},
+      powerEntity:'sensor.battery_power',routeOffset:48,waypoints:[{x:225,y:850}]},
+    {id:'old_neg',from:{node:'battery',port:'minus'},to:{node:'bus',port:'minus1'}}
+  ];
+  assert.deepEqual(validateDiagram(d),[]);
+  const result=compactLegacyDiagram(d);
+  assert.equal(result.changed,true);
+  assert.equal(result.mergedEdges,1);
+  assert.deepEqual(validateDiagram(result.diagram),[]);
+  const link=result.diagram.connections.find(e=>e.id==='old_pos');
+  assert.equal(link?.powerEntity,'sensor.battery_power');
+  assert.equal(link?.routeOffset,48);
+  assert.deepEqual(link?.waypoints,[{x:225,y:850}]);
+  assert.equal(result.diagram.nodes.find(n=>n.id==='battery')?.x,battery.x);
+  assert.equal(compactLegacyDiagram(result.diagram).changed,false);
+});
+test('migration does not silently discard incompatible opposing sensor readings',()=>{
+  const d=demoDiagram(),battery=d.nodes.find(n=>n.id==='battery')!,bus=d.nodes.find(n=>n.id==='bus')!;
+  battery.ports=PRESETS.battery.ports.map(p=>({...p}));
+  bus.ports=PRESETS.dc_bus.ports.map(p=>({...p}));
+  d.connections=[
+    {id:'plus',from:{node:'battery',port:'plus'},to:{node:'bus',port:'plus1'},powerEntity:'sensor.a'},
+    {id:'minus',from:{node:'battery',port:'minus'},to:{node:'bus',port:'minus1'},powerEntity:'sensor.b'}
+  ];
+  const result=compactLegacyDiagram(d);
+  assert.equal(result.changed,false);
+  assert.match(result.warning??'',/different power sensors/);
+});
+test('signed battery sensor drives exactly one logical link, reversing on charging',()=>{
+  const d=demoDiagram(),battery=d.nodes.find(n=>n.id==='battery')!;
+  battery.powerEntity='sensor.battery_power';
+  const edge=d.connections.find(e=>e.id==='bat_dc')!;
+  const hass={states:{'sensor.battery_power':{state:'-1.25',attributes:{unit_of_measurement:'kW'}}}};
+  assert.equal(resolveEdgePower(d,edge,hass).watts,-1250);
+  battery.powerPositive='in';
+  assert.equal(resolveEdgePower(d,edge,hass).watts,1250);
+  edge.powerEntity='sensor.edge';
+  assert.equal(resolveEdgePower(d,edge,hass).watts,null,'explicit unavailable edge sensor overrides fallback');
+});
+test('aggregate inverter power is not implicitly applied to every connected branch',()=>{
+  const d=demoDiagram(),inv=d.nodes.find(n=>n.id==='inv1')!;
+  inv.powerEntity='sensor.inverter_power';
+  const edge=d.connections.find(e=>e.id==='inv1_ac')!;
+  const hass={states:{'sensor.inverter_power':{state:'2000',attributes:{unit_of_measurement:'W'}}}};
+  assert.equal(resolveEdgePower(d,edge,hass).watts,null);
+});
+test('entity picker filters by power class/units and text, not every HA entity',()=>{
+  const hass={states:{
+    'sensor.batt_power':{state:'-500',attributes:{device_class:'power',friendly_name:'Battery Power',unit_of_measurement:'W'}},
+    'sensor.batt_voltage':{state:'52',attributes:{device_class:'voltage',friendly_name:'Battery Voltage',unit_of_measurement:'V'}},
+    'sensor.room_temperature':{state:'20',attributes:{device_class:'temperature',friendly_name:'Room Temp',unit_of_measurement:'°C'}},
+  }};
+  assert.deepEqual(filteredEntities(hass,'power','battery').map(e=>e.id),['sensor.batt_power']);
+  assert.deepEqual(filteredEntities(hass,'voltage','battery').map(e=>e.id),['sensor.batt_voltage']);
+  assert.equal(filteredEntities(hass,'power','room').length,0);
+});
+test('SVG artwork library provides equipment models for every major power device',()=>{
+  for(const type of ['hybrid_inverter','power_inverter','battery_rack','battery_cell',
+    'rectifier_rack','rectifier_box','dc_busbar','pv_panels','telecom_server']){
+      assert.ok(SVG_MODELS[type]);
+    }
 });

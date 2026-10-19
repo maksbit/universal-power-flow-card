@@ -5,6 +5,7 @@ import {HomeAssistant} from 'custom-card-helpers';
 import {CardConfig,PowerDiagram,makeId,parseDiagram} from './model';
 import {demoDiagram} from './presets';
 import {renderDiagram} from './render';
+import {compactLegacyDiagram} from './migration';
 import {universalStyles} from './styles';
 
 @customElement('universal-power-flow-card')
@@ -15,7 +16,8 @@ export class UniversalPowerFlowCard extends LitElement {
   private readonly instanceId=makeId('upfc');
   public setConfig(config:CardConfig):void {
     if(!config||typeof config!=='object')throw Error('Universal Power Flow: invalid configuration');
-    this.config={...config,diagram:config.diagram?parseDiagram(config.diagram):demoDiagram()};
+    const diagram=config.diagram?parseDiagram(config.diagram):demoDiagram();
+    this.config={...config,diagram:compactLegacyDiagram(diagram).diagram};
   }
   public static async getConfigElement():Promise<HTMLElement>{
     await import('./editor');
@@ -31,8 +33,8 @@ export class UniversalPowerFlowCard extends LitElement {
       ${renderDiagram({diagram:d,hass:this.hass,instanceId:this.instanceId,animate:this.config.animation!==false})}
       <div class="upfc-flow-legend">
         <span><i class="upfc-dot" style="background:#f8b84e"></i>AC</span>
-        <span><i class="upfc-dot" style="background:#e94848"></i>DC+</span>
-        <span><i class="upfc-dot" style="background:#555b67"></i>DC−</span>
+        <span><i class="upfc-dot" style="background:#e95b5b"></i>DC</span>
+        <span><i class="upfc-dot" style="background:#d9bc5b"></i>PV</span>
         <span><i class="upfc-dot" style="background:#41a7db"></i>Control</span>
         <span>— no sensor data</span>
       </div>
