@@ -24,7 +24,7 @@ export function filteredEntities(hass:HassLike|undefined,kind:SensorKind,query:s
    const name=(label+' '+id).toLocaleLowerCase();
    const u=unit.toLowerCase().trim();
    const typeMatched=kind==='any'||classes[kind].includes(dc)||units[kind].includes(u)||
-      (kind==='power'&&/(^|_|\s)(power|watt|battery_power|charge_power|discharge_power)(_|\s|$)/.test(name))||
+      (kind==='power'&&/(power|watt|pwr|electric|leistung|potencia|potenza|мощност)/.test(name))||
       (kind==='soc'&&/(^|_|\s)(soc|state_of_charge|battery_level)(_|\s|$)/.test(name));
    if(!typeMatched)continue;
    if(!keys.every(token=>name.includes(token)))continue;
