@@ -47,11 +47,20 @@ try{
  browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
  const page=await browser.newPage({viewport:{width:1480,height:940},acceptDownloads:true});
  const errors=[];
+ const messages=[];
  page.on('pageerror',e=>errors.push(e.message));
+ page.on('console',m=>messages.push(m.type()+': '+m.text()));
  await page.goto(`http://127.0.0.1:${port}/`,{waitUntil:'networkidle'});
  await page.waitForFunction(()=>!!window.upfcTest?.editor,{timeout:15000});
  const editor=page.locator('universal-power-flow-card-editor');
  await editor.getByRole('button',{name:/Full-screen editor/}).click();
+ const snapshot=await page.evaluate(()=>{
+  const e=window.upfcTest?.editor;
+  const o=e?.shadowRoot?.querySelector('.upfc-fullscreen-workspace');
+  return {expanded:e?.expanded,hidden:o?.hasAttribute('hidden'),classes:o?.className,
+    bodyLength:o?.innerHTML?.length,editorConnected:e?.isConnected};
+ });
+ console.log('FULLSCREEN DIAGNOSTICS',JSON.stringify({snapshot,errors,messages:messages.slice(-20)}));
  const workspace=editor.locator('.upfc-fullscreen-workspace');
  await workspace.waitFor({state:'visible',timeout:3000});
  assert.equal(await page.locator('#ha-dialog').evaluate(e=>e.open),true,'HA dialog remains open');
@@ -103,6 +112,11 @@ try{
  console.log('BROWSER E2E PASS: single click, editor changes, HA config echo, add, drag, delete, sensor select, modal reopen');
 }catch(err){
  console.error('BROWSER E2E FAILURE:',err);
+ if(typeof page!=='undefined') {
+  console.error('JS ERRORS',errors);
+  console.error('CONSOLE',messages.slice(-20));
+ }
+
  throw err;
 }finally{
  if(browser)await browser.close();
