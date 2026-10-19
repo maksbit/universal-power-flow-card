@@ -38,18 +38,23 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private readonly instanceId=makeId('editor');
   private readonly moveListener=(ev:PointerEvent)=>this.onPointerMove(ev);
   private readonly upListener=(ev:PointerEvent)=>this.onPointerUp(ev);
+  // Recovery from pointerup lost by the host HA settings dialog or window.
+  // A subsequent click always begins from an idle state, never a stale drag.
+  private readonly recoveryListener=()=>{if(this.drag)this.endDrag();};
   private readonly keyboardListener=(ev:KeyboardEvent)=>this.onKeyDown(ev);
   private readonly blurListener=()=>this.endDrag();
   private readonly visibilityListener=()=>{if(document.visibilityState==='hidden')this.endDrag();};
   public connectedCallback():void{
     super.connectedCallback();
     window.addEventListener('keydown',this.keyboardListener);
+    window.addEventListener('pointerdown',this.recoveryListener,{capture:true});
     window.addEventListener('blur',this.blurListener);
     document.addEventListener('visibilitychange',this.visibilityListener);
   }
   public disconnectedCallback():void{
     super.disconnectedCallback();
     window.removeEventListener('keydown',this.keyboardListener);
+    window.removeEventListener('pointerdown',this.recoveryListener,true);
     window.removeEventListener('blur',this.blurListener);
     document.removeEventListener('visibilitychange',this.visibilityListener);
     this.endDrag();
