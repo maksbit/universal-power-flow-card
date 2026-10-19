@@ -178,16 +178,12 @@ test('legacy polarity upgrade merges one DC circuit without losing entity/geomet
   const battery=d.nodes.find(n=>n.id==='battery')!,bus=d.nodes.find(n=>n.id==='bus')!;
   battery.ports=PRESETS.battery.ports.map(p=>({...p}));
   bus.ports=PRESETS.dc_bus.ports.map(p=>({...p}));
-  d.connections=d.connections.filter(e=>e.id!=='bat_dc');
-  d.connections.push({id:'old_pos',from:{node:'battery',port:'plus'},to:{node:'bus',port:'plus1'},
-    powerEntity:'sensor.battery_power',routeOffset:48,waypoints:[{x:225,y:850}]});
-  d.connections.push({id:'old_neg',from:{node:'battery',port:'minus'},to:{node:'bus',port:'minus1'}});
-  // Existing other logical DC bus links must be remapped back to old names before conversion.
-  for(const e of d.connections){
-    if(e.to.node==='bus'&&e.to.port.startsWith('dc'))e.to.port=e.to.port.replace(/^dc/,'plus');
-    if(e.from.node==='bus'&&e.from.port.startsWith('dc'))e.from.port=e.from.port.replace(/^dc/,'plus');
-  }
-  // The old bus has DC+ and DC- terminals but our other edges refer only to +.
+  // Build a self-contained, valid v0.1.x fixture with both physical conductors.
+  d.connections=[
+    {id:'old_pos',from:{node:'battery',port:'plus'},to:{node:'bus',port:'plus1'},
+      powerEntity:'sensor.battery_power',routeOffset:48,waypoints:[{x:225,y:850}]},
+    {id:'old_neg',from:{node:'battery',port:'minus'},to:{node:'bus',port:'minus1'}}
+  ];
   assert.deepEqual(validateDiagram(d),[]);
   const result=compactLegacyDiagram(d);
   assert.equal(result.changed,true);
