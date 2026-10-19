@@ -21,6 +21,16 @@ title: Telecom power infrastructure
 
 The card initially shows the **example topology** with no animated values; telemetry is not fabricated. Open the visual editor to bind each edge to its power sensor.
 
+## v0.2.4 — connected drag and real fullscreen
+
+- Equipment and power-flow connections now move **together during the drag gesture**. The in-memory node position and obstacle-aware SVG path geometry update together while preserving the existing SVG DOM; nothing is disconnected from its port.
+- On pointerup the new coordinates are committed to the Lovelace configuration once, and they survive clicking a blank area, selecting other equipment, and Home Assistant's `config-changed` echo.
+- Interrupted gestures roll back to the previous valid position. Signed-power flow animation paths update with changed routing.
+- Full-screen editor now calls the native browser Fullscreen API, placing the workspace in the top layer beyond Home Assistant's clipped card configuration modal. Toolbar, work canvas and scrollable inspector fill the viewport. Browser permission failures display an explicit message rather than opening a clipped pseudo-fullscreen.
+- Browser acceptance tests assert: true viewport bounds, connected wire changes **before mouse release**, persistence after background click, twice dragging the same node, cross-node dragging, property edits, deletion, sensor selection and full-screen reopening.
+
+**Usage:** Open the card editor, then choose **Full-screen editor**. Allow fullscreen if your browser requests permission. Esc or **Close full screen** exits; unsaved Lovelace changes still require **Save** in Home Assistant.
+
 ## v0.2.3 — stable repeated dragging inside Home Assistant
 
 - Reworked pointer handling: dragging a device now moves the SVG element visually without mutating the reactive diagram on every mouse movement. Device position, connection routing and HA configuration update **once** on pointer release.
