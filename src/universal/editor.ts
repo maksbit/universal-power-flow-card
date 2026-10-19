@@ -152,10 +152,10 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
       g.querySelectorAll<SVGPathElement>('path').forEach(path=>path.setAttribute('d',d));
       const motion=g.querySelector<SVGAnimateMotionElement>('animateMotion');
       if(motion){
-        const hasReverse=motion.getAttribute('path')?.startsWith('M '+points[points.length-1].x.toFixed(1));
-        motion.setAttribute('path',pathOf(hasReverse?[...points].reverse():points));
+        const watts=resolveEdgePower(this.diagram,edge,this.hass).watts;
+        motion.setAttribute('path',pathOf(watts!==null&&watts<0?[...points].reverse():points));
       }
-      let distance=0;
+
       const lengths=points.slice(1).map((p,i)=>Math.hypot(p.x-points[i].x,p.y-points[i].y));
       let remaining=lengths.reduce((a,b)=>a+b,0)/2;
       let middle=points[Math.floor(points.length/2)];
@@ -166,7 +166,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
                   y:points[i].y+(points[i+1].y-points[i].y)*t};
           break;
         }
-        remaining-=lengths[i];distance+=lengths[i];
+        remaining-=lengths[i];
       }
       const label=g.querySelector<SVGGElement>('g.upfc-edge-label');
       label?.setAttribute('transform',`translate(${middle.x} ${middle.y-12})`);
