@@ -13,6 +13,7 @@ import './entity-picker';
 import {compactLegacyDiagram} from './migration';
 
 type Drag = {kind:'node'|'waypoint'|'pan';id?:string;index?:number;pointerId?:number;
+  screenStart?:Point;activated?:boolean;
   start:Point;origin:Point;moved?:boolean};
 @customElement('universal-power-flow-card-editor')
 export class UniversalPowerFlowEditor extends LitElement implements LovelaceCardEditor{
@@ -27,6 +28,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   @state() private zoom=1;
   @state() private pan:Point={x:0,y:0};
   @state() private expanded=false;
+  @state() private pendingDeleteId='';
   @state() private revision=0;
   private lastEmittedSignature='';
   private lastInboundSignature='';
@@ -149,7 +151,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private onNodeClick(ev:MouseEvent,id:string):void{
     if(ev.button!==0)return;
     ev.stopPropagation();
-    this.nodeId=id;this.edgeId='';this.portStart=undefined;
+    this.nodeId=id;this.edgeId='';this.portStart=undefined;this.pendingDeleteId='';
   }
   private onNodeDown(ev:PointerEvent,id:string):void{
     if(ev.button!==0)return;
@@ -157,7 +159,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     ev.stopPropagation();
     this.nodeId=id;this.edgeId='';this.portStart=undefined;
     const n=this.selectedNode;if(!n)return;
-    this.startDrag({kind:'node',id,pointerId:ev.pointerId,start:this.at(ev),origin:{x:n.x,y:n.y}});
+    this.startDrag({kind:'node',id,pointerId:ev.pointerId,screenStart:{x:ev.clientX,y:ev.clientY},start:this.at(ev),origin:{x:n.x,y:n.y}});
   }
   private onWaypointDown(ev:PointerEvent,id:string,index:number):void{
     ev.preventDefault();ev.stopPropagation();
@@ -178,6 +180,11 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     // Missing pointerup (focus switch, shadow-root changes) must never leave
     // the editor in a permanently dragging/frozen state.
     if(ev.buttons===0){this.onPointerUp(ev);return;}
+    if(!this.drag.activated&&this.drag.kind!=='pan'&&this.drag.screenStart){
+      const distance=Math.hypot(ev.clientX-this.drag.screenStart.x,ev.clientY-this.drag.screenStart.y);
+      if(distance<6)return; // a mouse click must not move/snap an existing node
+      this.drag.activated=true;
+    }
     if(this.drag.kind==='pan'){
       const el=this.svgEl;
       if(!el)return;
@@ -278,13 +285,18 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     if(this.nodeId){
       const id=this.nodeId;
       const count=this.diagram.connections.filter(e=>e.from.node===id||e.to.node===id).length;
-      if(count>0 && !window.confirm(`Delete equipment and ${count} connected wires?`))return;
+      if(count>0&&this.pendingDeleteId!==id){
+        this.pendingDeleteId=id;
+        this.notice=`Удаление этого устройства также удалит ${count} подключённых линий. Нажми Delete selected ещё раз для подтверждения.`;
+        return;
+      }
       this.diagram.nodes=this.diagram.nodes.filter(n=>n.id!==id);
       this.diagram.connections=this.diagram.connections.filter(e=>e.from.node!==id&&e.to.node!==id);
       this.nodeId='';
     }else if(this.edgeId){
       this.diagram.connections=this.diagram.connections.filter(e=>e.id!==this.edgeId);this.edgeId='';
     }else return;
+    this.pendingDeleteId='';
     this.notice='Selected item deleted';
     this.emit();
   }
@@ -505,6 +517,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     this.nodeId=raw.startsWith('node:')?raw.slice(5):'';
     this.edgeId=raw.startsWith('edge:')?raw.slice(5):'';
     this.portStart=undefined;
+    this.pendingDeleteId='';
   }
   private renderWorkspace(){
     // Keep the workspace render dependent on every committed mutation.
@@ -526,7 +539,9 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
           <optgroup label="Equipment">${d.nodes.map(n=>html`<option value="node:${n.id}">${n.name}</option>`)}</optgroup>
           <optgroup label="Wires">${d.connections.map(e=>html`<option value="edge:${e.id}">${e.name??e.id} · ${e.from.node} → ${e.to.node}</option>`)}</optgroup>
         </select>
-        <button class="danger" ?disabled=${!this.nodeId&&!this.edgeId} @click=${()=>this.deleteSelected()}>🗑 Delete selected</button>
+        <button class="danger" ?disabled=${!this.nodeId&&!this.edgeId} @click=${()=>this.deleteSelected()}>
+          ${this.nodeId&&this.pendingDeleteId===this.nodeId?'⚠ Confirm delete':'🗑 Delete selected'}</button>
+        ${this.pendingDeleteId?html`<button type="button" @click=${()=>{this.pendingDeleteId='';this.notice='';}}>Cancel delete</button>`:nothing}
       </div>
       <details class="upfc-palette"><summary>Equipment palette — click to add or drag onto canvas</summary>
         <div class="upfc-toolbar">${Object.entries(PRESETS).map(([type,p])=>html`
