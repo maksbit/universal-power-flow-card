@@ -125,7 +125,10 @@ try{
  assert.ok(moved3&&Math.hypot(moved3.x-box3.x,moved3.y-box3.y)>12,
    'another equipment item must be draggable after moving the first');
  assert.equal((await inspect()).drag,undefined,'drag state must reset across devices');
- await second.locator('rect.upfc-node-box').click();
+ // When devices overlap after movements, choose the intended item via the
+ // inspector dropdown. This also verifies that form controls remain responsive.
+ await workspace.locator('.upfc-primarybar select').nth(1).selectOption('node:gen');
+ assert.equal((await inspect()).selected,'gen','selection dropdown must work after several drags');
  // Native nested dialogs used to swallow controls after a drag.
  await workspace.getByRole('button',{name:/Delete selected/}).click();
  const confirm=workspace.getByRole('button',{name:/Confirm delete/});
