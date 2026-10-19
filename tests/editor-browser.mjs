@@ -111,8 +111,8 @@ try{
  assert.equal((await inspect()).drag,undefined,'second drag must release pointer tracking');
  // Editing immediately after a second drag must emit config updates.
  const eventsBeforeEdit=await page.evaluate(()=>window.upfcTest.events.length);
- await workspace.locator('.upfc-inspector').getByLabel('Label', {exact:true}).fill('Edited after second drag');
- await workspace.locator('.upfc-inspector').getByLabel('Label', {exact:true}).press('Tab');
+ await workspace.locator('.upfc-inspector > input').nth(1).fill('Edited after second drag');
+ await workspace.locator('.upfc-inspector > input').nth(1).press('Tab');
  assert.ok((await page.evaluate(()=>window.upfcTest.events.length))>eventsBeforeEdit,
    'node properties must remain editable immediately after repeat drag');
  // Moving a different node must not be blocked by the first object's listeners.
