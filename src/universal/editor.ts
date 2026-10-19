@@ -164,17 +164,20 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     this.edgeId=id;this.nodeId='';
     const p=this.diagram.connections.find(e=>e.id===id)?.waypoints?.[index];
     if(!p)return;
-    this.startDrag({kind:'waypoint',id,index,start:this.at(ev),origin:{...p}});
+    this.startDrag({kind:'waypoint',id,index,pointerId:ev.pointerId,start:this.at(ev),origin:{...p}});
   }
   private onBackgroundDown(ev:PointerEvent):void{
     if(ev.button!==0)return;
     if(ev.shiftKey){
       ev.preventDefault();
-      this.startDrag({kind:'pan',start:{x:ev.clientX,y:ev.clientY},origin:{...this.pan}});
+      this.startDrag({kind:'pan',pointerId:ev.pointerId,start:{x:ev.clientX,y:ev.clientY},origin:{...this.pan}});
     }else{this.nodeId='';this.edgeId='';this.portStart=undefined;}
   }
   private onPointerMove(ev:PointerEvent):void{
-    if(!this.drag)return;
+    if(!this.drag||(this.drag.pointerId!==undefined&&ev.pointerId!==this.drag.pointerId))return;
+    // Missing pointerup (focus switch, shadow-root changes) must never leave
+    // the editor in a permanently dragging/frozen state.
+    if(ev.buttons===0){this.onPointerUp(ev);return;}
     if(this.drag.kind==='pan'){
       const el=this.svgEl;
       if(!el)return;
@@ -200,8 +203,8 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
       }
     }
   }
-  private onPointerUp(_ev:PointerEvent):void{
-    if(!this.drag)return;
+  private onPointerUp(ev:PointerEvent):void{
+    if(!this.drag||(this.drag.pointerId!==undefined&&ev.pointerId!==this.drag.pointerId))return;
     const hasTopologyChange=this.drag.kind!=='pan'&&!!this.drag.moved;
     this.endDrag();
     if(hasTopologyChange)this.emit();
