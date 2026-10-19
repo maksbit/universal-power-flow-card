@@ -63,7 +63,15 @@ try{
  console.log('FULLSCREEN DIAGNOSTICS',JSON.stringify({snapshot,errors,messages:messages.slice(-20)}));
  const workspace=editor.locator('.upfc-fullscreen-workspace');
  await workspace.waitFor({state:'visible',timeout:3000});
+ await page.waitForFunction(()=>!!window.upfcTest.editor?.shadowRoot
+   ?.querySelector('.upfc-fullscreen-workspace')?.matches(':fullscreen'),{timeout:7000});
  assert.equal(await page.locator('#ha-dialog').evaluate(e=>e.open),true,'HA dialog remains open');
+ const bounds=await workspace.boundingBox();
+ assert.ok(bounds&&bounds.width>=1470&&bounds.height>=920&&bounds.x<5&&bounds.y<5,
+   'full screen editor must cover browser viewport, not be clipped by HA modal');
+ const workingCanvas=await workspace.locator('svg.upfc-canvas').boundingBox();
+ assert.ok(workingCanvas&&workingCanvas.height>=400&&workingCanvas.width>=550,
+   'canvas must have usable workspace size in fullscreen');
  const nodes=workspace.locator('svg.upfc-canvas g.upfc-node');
  const initialCount=await nodes.count();
  assert.ok(initialCount>=10,`Expected demo equipment; got ${initialCount}`);
@@ -84,12 +92,27 @@ try{
  await nodes.nth(1).locator('rect.upfc-node-box').click();
  assert.ok(await workspace.locator('g.upfc-node.selected').count()===1,'selection remains responsive');
  const second=nodes.nth(1);
+ const linkedEdge=await page.evaluate(()=>{
+   const d=window.upfcTest.editor.config.diagram;
+   return d.connections.find(e=>e.from.node==='gen'||e.to.node==='gen')?.id;
+ });
+ assert.ok(linkedEdge,'fixture should have connected generator');
+ const route=workspace.locator('g[data-upfc-edge="'+linkedEdge+'"] path').first();
+ const beforeWire=await route.getAttribute('d');
+ const beforeConfig=await page.evaluate(()=>window.upfcTest.editor.config.diagram.nodes.find(n=>n.id==='gen').x);
  const old=await second.boundingBox();
  assert.ok(old,'equipment rectangle exists');
  await page.mouse.move(old.x+old.width/2,old.y+old.height/2);
  await page.mouse.down();
  await page.mouse.move(old.x+old.width/2+75,old.y+old.height/2+50,{steps:8});
+ await page.waitForTimeout(160);
+ const whileDrag=await route.getAttribute('d');
+ assert.notEqual(whileDrag,beforeWire,'connection path must follow node BEFORE pointerup');
  await page.mouse.up();
+ await page.waitForTimeout(160);
+ assert.notEqual(await route.getAttribute('d'),beforeWire,'connection path must persist after pointerup');
+ const afterConfig=await page.evaluate(()=>window.upfcTest.editor.config.diagram.nodes.find(n=>n.id==='gen').x);
+ assert.notEqual(afterConfig,beforeConfig,'real diagram coordinates must commit on pointerup');
  const after=await second.boundingBox();
  assert.ok(after&&Math.hypot(after.x-old.x,after.y-old.y)>10,'drag moves selected node');
  const inspect=()=>page.evaluate(()=>({drag:window.upfcTest.editor.drag,
@@ -105,6 +128,16 @@ try{
  await page.mouse.move(p1.x+85,p1.y-65,{steps:9});
  await page.mouse.up();
  const afterRepeat=await second.boundingBox();
+ const savedAfterSecond=await page.evaluate(()=>{
+   const editor=window.upfcTest.editor;
+   return {x:editor.config.diagram.nodes.find(n=>n.id==='gen').x,
+     events:window.upfcTest.events.length};
+ });
+ // Clicking vacant background must NOT revert a successful move.
+ await workspace.locator('svg.upfc-canvas rect.upfc-bg').click({position:{x:600,y:800}});
+ const persisted=await page.evaluate(()=>window.upfcTest.editor.config.diagram.nodes.find(n=>n.id==='gen').x);
+ assert.equal(persisted,savedAfterSecond.x,'position must survive clicking background and HA config echo');
+ await workspace.locator('.upfc-primarybar select').nth(1).selectOption('node:gen');
  console.log('AFTER REPEATED DRAG',JSON.stringify({initialX,initialY,afterRepeat,state:await inspect()}));
  assert.ok(afterRepeat&&Math.hypot(afterRepeat.x-initialX,afterRepeat.y-initialY)>12,
    'second drag of SAME node must work immediately');
@@ -153,7 +186,9 @@ try{
  await workspace.getByRole('button',{name:/Close full screen/}).click();
  assert.equal(await workspace.isVisible(),false);
  await editor.getByRole('button',{name:/Full-screen editor/}).click();
- assert.equal(await workspace.isVisible(),true,'can reopen full screen without moving equipment');
+ await page.waitForFunction(()=>!!window.upfcTest.editor.shadowRoot
+    ?.querySelector('.upfc-fullscreen-workspace')?.matches(':fullscreen'));
+ assert.equal(await workspace.isVisible(),true,'can reopen actual browser fullscreen without moving equipment');
  assert.deepEqual(errors,[],'page console has no unhandled JS errors');
  console.log('BROWSER E2E PASS: select, repeated drag, inline property edit, lost-pointerup recovery, cross-node drag, delete, sensor select, reopen');
 }catch(err){
