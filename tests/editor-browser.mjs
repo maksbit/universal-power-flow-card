@@ -134,7 +134,10 @@ try{
      events:window.upfcTest.events.length};
  });
  // Clicking vacant background must NOT revert a successful move.
- await workspace.locator('svg.upfc-canvas rect.upfc-bg').click({position:{x:600,y:800}});
+ const canvasBounds=await workspace.locator('svg.upfc-canvas').boundingBox();
+ assert.ok(canvasBounds&&canvasBounds.width>400&&canvasBounds.height>400);
+ await page.mouse.click(canvasBounds.x+12,canvasBounds.y+12); // visible empty SVG corner
+
  const persisted=await page.evaluate(()=>window.upfcTest.editor.config.diagram.nodes.find(n=>n.id==='gen').x);
  assert.equal(persisted,savedAfterSecond.x,'position must survive clicking background and HA config echo');
  await workspace.locator('.upfc-primarybar select').nth(1).selectOption('node:gen');
