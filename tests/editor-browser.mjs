@@ -92,6 +92,52 @@ try{
  await page.mouse.up();
  const after=await second.boundingBox();
  assert.ok(after&&Math.hypot(after.x-old.x,after.y-old.y)>10,'drag moves selected node');
+ const inspect=()=>page.evaluate(()=>({drag:window.upfcTest.editor.drag,
+   selected:window.upfcTest.editor.nodeId,expanded:window.upfcTest.editor.expanded,
+   events:window.upfcTest.events.length}));
+ console.log('AFTER FIRST DRAG',JSON.stringify(await inspect()));
+ assert.equal((await inspect()).drag,undefined,'first drag must release pointer tracking');
+ // Repeat drag of the SAME node before editing or deleting anything.
+ const initialX=after.x,initialY=after.y;
+ const p1={x:after.x+after.width/2,y:after.y+after.height/2};
+ await page.mouse.move(p1.x,p1.y);
+ await page.mouse.down();
+ await page.mouse.move(p1.x+85,p1.y-65,{steps:9});
+ await page.mouse.up();
+ const afterRepeat=await second.boundingBox();
+ console.log('AFTER REPEATED DRAG',JSON.stringify({initialX,initialY,afterRepeat,state:await inspect()}));
+ assert.ok(afterRepeat&&Math.hypot(afterRepeat.x-initialX,afterRepeat.y-initialY)>12,
+   'second drag of SAME node must work immediately');
+ assert.equal((await inspect()).drag,undefined,'second drag must release pointer tracking');
+ // Editing immediately after a second drag must emit config updates.
+ const eventsBeforeEdit=await page.evaluate(()=>window.upfcTest.events.length);
+ await workspace.locator('.upfc-inspector > input').nth(1).fill('Edited after second drag');
+ await workspace.locator('.upfc-inspector > input').nth(1).press('Tab');
+ assert.ok((await page.evaluate(()=>window.upfcTest.events.length))>eventsBeforeEdit,
+   'node properties must remain editable immediately after repeat drag');
+ // Regression: Home Assistant may swallow a pointerup during dialog re-render.
+ // The next pointerdown on a form control must recover the editor immediately.
+ await page.evaluate(()=>{
+   const e=window.upfcTest.editor;
+   e.drag={kind:'node',id:'gen',pointerId:98,start:{x:0,y:0},origin:{x:0,y:0},moved:true};
+ });
+ await workspace.locator('.upfc-inspector > input').nth(1).click();
+ assert.equal((await inspect()).drag,undefined,'new click must recover stale drag state');
+
+ // Moving a different node must not be blocked by the first object's listeners.
+ const third=nodes.nth(2);
+ const box3=await third.boundingBox();assert.ok(box3);
+ const p3={x:box3.x+box3.width/2,y:box3.y+box3.height/2};
+ await page.mouse.move(p3.x,p3.y);await page.mouse.down();
+ await page.mouse.move(p3.x-80,p3.y+65,{steps:9});await page.mouse.up();
+ const moved3=await third.boundingBox();
+ assert.ok(moved3&&Math.hypot(moved3.x-box3.x,moved3.y-box3.y)>12,
+   'another equipment item must be draggable after moving the first');
+ assert.equal((await inspect()).drag,undefined,'drag state must reset across devices');
+ // When devices overlap after movements, choose the intended item via the
+ // inspector dropdown. This also verifies that form controls remain responsive.
+ await workspace.locator('.upfc-primarybar select').nth(1).selectOption('node:gen');
+ assert.equal((await inspect()).selected,'gen','selection dropdown must work after several drags');
  // Native nested dialogs used to swallow controls after a drag.
  await workspace.getByRole('button',{name:/Delete selected/}).click();
  const confirm=workspace.getByRole('button',{name:/Confirm delete/});
@@ -109,7 +155,7 @@ try{
  await editor.getByRole('button',{name:/Full-screen editor/}).click();
  assert.equal(await workspace.isVisible(),true,'can reopen full screen without moving equipment');
  assert.deepEqual(errors,[],'page console has no unhandled JS errors');
- console.log('BROWSER E2E PASS: single click, editor changes, HA config echo, add, drag, delete, sensor select, modal reopen');
+ console.log('BROWSER E2E PASS: select, repeated drag, inline property edit, lost-pointerup recovery, cross-node drag, delete, sensor select, reopen');
 }catch(err){
  console.error('BROWSER E2E FAILURE:',err);
  if(typeof page!=='undefined') {

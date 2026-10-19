@@ -21,6 +21,14 @@ title: Telecom power infrastructure
 
 The card initially shows the **example topology** with no animated values; telemetry is not fabricated. Open the visual editor to bind each edge to its power sensor.
 
+## v0.2.3 — stable repeated dragging inside Home Assistant
+
+- Reworked pointer handling: dragging a device now moves the SVG element visually without mutating the reactive diagram on every mouse movement. Device position, connection routing and HA configuration update **once** on pointer release.
+- Resets the drag preview when interrupted by blur/visibility changes/cancel, and recovers on a subsequent click if the host dialog swallowed `pointerup`.
+- Decorative SVG artwork no longer intercepts device clicks; equipment boxes receive events consistently.
+- Extended Chromium regression flow: move same device twice, edit a property, simulate a lost pointerup, move another device, delete a device, select a sensor and reopen fullscreen.
+- Existing card schema and saved entity bindings stay unchanged. Existing Sunsynk card remains unaffected.
+
 ## v0.2.2 — interactive editor reliability
 
 Home Assistant's own configuration editor already operates within a dialog. This release avoids opening a second native modal, which could swallow focus and pointer events. The large workspace is now a fixed in-component overlay.

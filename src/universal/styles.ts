@@ -6,6 +6,9 @@ h3{margin:4px 8px 10px;font-size:1.1rem}
 .upfc-canvas{display:block;width:100%;height:auto;min-height:270px;max-height:75vh;user-select:none;touch-action:none;border:1px solid var(--divider-color,#405060);border-radius:8px;background:var(--primary-background-color,#15212b)}
 .upfc-bg{pointer-events:all}
 .upfc-node{cursor:grab}
+/* Decorative vector art must not steal hit testing from the enclosing equipment. */
+.upfc-node > g > svg,.upfc-node > g > svg *,.upfc-node > g > text{pointer-events:none}
+.upfc-node:active{cursor:grabbing}
 .upfc-node-box{fill:var(--card-background-color,#263340);stroke:var(--divider-color,#607080);stroke-width:2}
 .upfc-node.selected .upfc-node-box{stroke:var(--primary-color,#03a9f4);stroke-width:4}
 .upfc-node-title{fill:var(--primary-text-color,#eee);font-size:12px;font-weight:bold}

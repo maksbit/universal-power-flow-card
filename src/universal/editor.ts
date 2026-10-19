@@ -14,7 +14,8 @@ import {compactLegacyDiagram} from './migration';
 
 type Drag = {kind:'node'|'waypoint'|'pan';id?:string;index?:number;pointerId?:number;
   screenStart?:Point;activated?:boolean;
-  start:Point;origin:Point;moved?:boolean};
+  start:Point;origin:Point;moved?:boolean;
+  nodeElement?:SVGGElement;preview?:Point};
 @customElement('universal-power-flow-card-editor')
 export class UniversalPowerFlowEditor extends LitElement implements LovelaceCardEditor{
   static styles=universalStyles;
@@ -37,18 +38,23 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private readonly instanceId=makeId('editor');
   private readonly moveListener=(ev:PointerEvent)=>this.onPointerMove(ev);
   private readonly upListener=(ev:PointerEvent)=>this.onPointerUp(ev);
+  // Recovery from pointerup lost by the host HA settings dialog or window.
+  // A subsequent click always begins from an idle state, never a stale drag.
+  private readonly recoveryListener=()=>{if(this.drag)this.endDrag();};
   private readonly keyboardListener=(ev:KeyboardEvent)=>this.onKeyDown(ev);
   private readonly blurListener=()=>this.endDrag();
   private readonly visibilityListener=()=>{if(document.visibilityState==='hidden')this.endDrag();};
   public connectedCallback():void{
     super.connectedCallback();
     window.addEventListener('keydown',this.keyboardListener);
+    window.addEventListener('pointerdown',this.recoveryListener,{capture:true});
     window.addEventListener('blur',this.blurListener);
     document.addEventListener('visibilitychange',this.visibilityListener);
   }
   public disconnectedCallback():void{
     super.disconnectedCallback();
     window.removeEventListener('keydown',this.keyboardListener);
+    window.removeEventListener('pointerdown',this.recoveryListener,true);
     window.removeEventListener('blur',this.blurListener);
     document.removeEventListener('visibilitychange',this.visibilityListener);
     this.endDrag();
@@ -85,6 +91,9 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     window.addEventListener('pointercancel',this.upListener,{capture:true});
   }
   private endDrag():void{
+    // A cancelled or interrupted gesture must never leave a transformed SVG
+    // object above the inspector or absorb subsequent pointer interactions.
+    if(this.drag?.nodeElement?.isConnected)this.drag.nodeElement.removeAttribute('transform');
     this.drag=undefined;
     window.removeEventListener('pointermove',this.moveListener,true);
     window.removeEventListener('pointerup',this.upListener,true);
@@ -163,7 +172,9 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     this.nodeId=id;this.edgeId='';this.portStart=undefined;this.pendingDeleteId='';
     this.requestUpdate();
     const n=this.selectedNode;if(!n)return;
-    this.startDrag({kind:'node',id,pointerId:ev.pointerId,screenStart:{x:ev.clientX,y:ev.clientY},start:this.at(ev),origin:{x:n.x,y:n.y}});
+    this.startDrag({kind:'node',id,pointerId:ev.pointerId,
+      screenStart:{x:ev.clientX,y:ev.clientY},start:this.at(ev),origin:{x:n.x,y:n.y},
+      nodeElement:ev.currentTarget as SVGGElement});
   }
   private onWaypointDown(ev:PointerEvent,id:string,index:number):void{
     ev.preventDefault();ev.stopPropagation();
@@ -200,10 +211,18 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     }
     const p=this.at(ev),dx=p.x-this.drag.start.x,dy=p.y-this.drag.start.y;
     if(this.drag.kind==='node'){
+      // Preview visually without touching the reactive graph or rerendering Lit
+      // on every pointermove. Rebuilding SVG under a pressed pointer can lose
+      // pointerup events when Home Assistant re-renders its configuration dialog.
       const n=this.diagram.nodes.find(x=>x.id===this.drag?.id);
       if(n){
         const x=this.snap(this.drag.origin.x+dx),y=this.snap(this.drag.origin.y+dy);
-        if(n.x!==x||n.y!==y){n.x=x;n.y=y;this.drag.moved=true;this.requestUpdate();}
+        if(n.x!==x||n.y!==y){
+          this.drag.preview={x,y};this.drag.moved=true;
+          const element=this.drag.nodeElement;
+          if(element?.isConnected)
+            element.setAttribute('transform',`translate(${x-this.drag.origin.x} ${y-this.drag.origin.y})`);
+        }
       }
     }else{
       const e=this.diagram.connections.find(x=>x.id===this.drag?.id),index=this.drag.index??-1;
@@ -217,7 +236,13 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   }
   private onPointerUp(ev:PointerEvent):void{
     if(!this.drag||(this.drag.pointerId!==undefined&&ev.pointerId!==this.drag.pointerId))return;
-    const hasTopologyChange=this.drag.kind!=='pan'&&!!this.drag.moved;
+    const drag=this.drag;
+    const hasTopologyChange=drag.kind!=='pan'&&!!drag.moved;
+    // Commit a device move ONCE after release, not during the gesture.
+    if(drag.kind==='node'&&drag.preview&&drag.id){
+      const node=this.diagram.nodes.find(n=>n.id===drag.id);
+      if(node){node.x=drag.preview.x;node.y=drag.preview.y;}
+    }
     this.endDrag();
     if(hasTopologyChange)this.emit();
   }
