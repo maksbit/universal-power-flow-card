@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {cloneDiagram,parseDiagram,portCompatible,validateDiagram,PowerPort} from '../src/universal/model';
 import {createNode,demoDiagram} from '../src/universal/presets';
-import {connectionPoints,sensorPower,portPosition,automaticLaneOffset,resolveEdgePower} from '../src/universal/render';
+import {connectionPoints,sensorPower,portPosition,automaticLaneOffset,resolveEdgePower,flowMotionPath,flowDescription,renderDiagram} from '../src/universal/render';
 import {compactLegacyDiagram} from '../src/universal/migration';
 import {PRESETS} from '../src/universal/presets';
 import {SVG_MODELS} from '../src/universal/device-art';
@@ -241,4 +241,77 @@ test('SVG artwork library provides equipment models for every major power device
     'rectifier_rack','rectifier_box','dc_busbar','pv_panels','telecom_server']){
       assert.ok(SVG_MODELS[type]);
     }
+});
+
+test('battery power entity drives the visible flow with both discharge and charge direction',()=>{
+  const d=demoDiagram(),battery=d.nodes.find(n=>n.id==='battery')!;
+  const edge=d.connections.find(e=>e.id==='bat_dc')!;
+  battery.powerEntity='sensor.battery_output';
+  const discharge={states:{'sensor.battery_output':{state:'1600',attributes:{device_class:'power',unit_of_measurement:'W'}}}};
+  assert.equal(resolveEdgePower(d,edge,discharge).watts,1600);
+  assert.match(flowDescription(d,edge,discharge),/от начала к концу/);
+  discharge.states['sensor.battery_output'].state='-500';
+  assert.equal(resolveEdgePower(d,edge,discharge).watts,-500);
+  assert.match(flowDescription(d,edge,discharge),/от конца к началу/);
+  assert.equal(sensorPower('sensor.battery_output',discharge),-500);
+});
+test('power flow binds to selected branch only when equipment has multiple links',()=>{
+  const d=demoDiagram(),bus=d.nodes.find(n=>n.id==='bus')!;
+  bus.powerEntity='sensor.bus_power';
+  const e=d.connections.find(x=>x.id==='bus_inv2')!;
+  const hass={states:{'sensor.bus_power':{state:'2.3',attributes:{unit_of_measurement:'kW'}}}};
+  assert.equal(resolveEdgePower(d,e,hass).watts,null);
+  assert.match(flowDescription(d,e,hass),/несколько силовых соединений/);
+  bus.powerFlowEdgeId=e.id;
+  assert.equal(resolveEdgePower(d,e,hass).watts,2300);
+  assert.equal(resolveEdgePower(d,d.connections.find(x=>x.id==='bus_inv1')!,hass).watts,null);
+  assert.deepEqual(validateDiagram(d),[]);
+});
+test('active animation motion path respects sign and contains reverse real SVG points',()=>{
+  const points=[{x:10,y:20},{x:50,y:20},{x:50,y:80}];
+  assert.equal(flowMotionPath(points,120),'M 10.0 20.0 L 50.0 20.0 L 50.0 80.0');
+  assert.equal(flowMotionPath(points,-120),'M 50.0 80.0 L 50.0 20.0 L 10.0 20.0');
+  assert.notEqual(flowMotionPath(points,120),flowMotionPath(points,-120));
+});
+test('entity autocomplete supports one letter, input_number and metadata-free sensors',()=>{
+  const hass={states:{
+    'sensor.custom_battery_pwr':{state:'220',attributes:{friendly_name:'Battery ChargePower'}},
+    'sensor.foo_voltage':{state:'53',attributes:{device_class:'voltage',unit_of_measurement:'V'}},
+    'input_number.battery_power':{state:'110',attributes:{friendly_name:'Battery power override'}},
+  }};
+  assert.deepEqual(filteredEntities(hass,'power','b').map(x=>x.id),['sensor.custom_battery_pwr']);
+  assert.ok(filteredEntities(hass,'any','battery').some(x=>x.id==='input_number.battery_power'));
+  assert.ok(filteredEntities(hass,'any','').length>=3);
+});
+test('missing, zero and non-power entity produce clear flow diagnostics',()=>{
+  const d=demoDiagram(),bat=d.nodes.find(n=>n.id==='battery')!;
+  const e=d.connections.find(x=>x.id==='bat_dc')!;
+  assert.match(flowDescription(d,e),/Назначьте датчик мощности/);
+  bat.powerEntity='sensor.battery_soc';
+  const h={states:{'sensor.battery_soc':{state:'85',attributes:{unit_of_measurement:'%'}}}};
+  assert.equal(resolveEdgePower(d,e,h).watts,null);
+  assert.match(flowDescription(d,e,h),/не содержит мощность/);
+  h.states['sensor.battery_soc'].attributes.unit_of_measurement='W';
+  h.states['sensor.battery_soc'].state='0';
+  assert.match(flowDescription(d,e,h),/0 W/);
+});
+
+test('rendered battery flow includes a live SVG animation when a numeric power sensor is bound',()=>{
+  const d=demoDiagram(),battery=d.nodes.find(n=>n.id==='battery')!;
+  battery.powerEntity='sensor.battery_power';
+  const hass={states:{'sensor.battery_power':{state:'-0.7',attributes:{unit_of_measurement:'kW'}}}};
+  const batteryLink=d.connections.find(e=>e.id==='bat_dc')!;
+  assert.ok(connectionPoints(d,batteryLink),'battery must have a routable animated DC link');
+  const template=renderDiagram({diagram:d,hass,instanceId:'integration',animate:true});
+  const flatten=(value:unknown):string=>{
+    if(Array.isArray(value))return value.map(flatten).join('');
+    if(value&&typeof value==='object'){
+      const t=value as {strings?:readonly string[];values?:unknown[]};
+      if(t.strings&&t.values)return t.strings.join('')+t.values.map(flatten).join('');
+    }
+    return '';
+  };
+  const markup=flatten(template);
+  assert.ok(markup.includes('upfc-flow-dot'),'expected an active SVG flow dot template');
+  assert.ok(markup.includes('animateMotion'),'expected a browser SVG animation template');
 });
