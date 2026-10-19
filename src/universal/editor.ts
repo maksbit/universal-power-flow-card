@@ -69,11 +69,13 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     // can swallow clicks/pointerup on subsequent editor updates.
     this.expanded=true;
     this.notice='';
+    this.requestUpdate();
   }
   private closeExpanded():void{
     this.endDrag();
     this.expanded=false;
     this.localEditsPending=false;
+    this.requestUpdate();
   }
   private startDrag(next:Drag):void{
     this.endDrag();
@@ -92,7 +94,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     nodeDown:(ev,id)=>this.onNodeDown(ev,id),
     nodeClick:(ev,id)=>this.onNodeClick(ev,id),
     portDown:(ev,node,port)=>this.onPortDown(ev,node,port),
-    edgeClick:id=>{this.nodeId='';this.edgeId=id;this.portStart=undefined;},
+    edgeClick:id=>{this.nodeId='';this.edgeId=id;this.portStart=undefined;this.pendingDeleteId='';this.requestUpdate();},
     edgeDoubleClick:(ev,id)=>this.onEdgeDoubleClick(ev,id),
     waypointDown:(ev,id,index)=>this.onWaypointDown(ev,id,index),
     backgroundDown:ev=>this.onBackgroundDown(ev),
@@ -152,18 +154,20 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     if(ev.button!==0)return;
     ev.stopPropagation();
     this.nodeId=id;this.edgeId='';this.portStart=undefined;this.pendingDeleteId='';
+    this.requestUpdate();
   }
   private onNodeDown(ev:PointerEvent,id:string):void{
     if(ev.button!==0)return;
     // Do not cancel pointerdown, because the following native click is needed.
     ev.stopPropagation();
-    this.nodeId=id;this.edgeId='';this.portStart=undefined;
+    this.nodeId=id;this.edgeId='';this.portStart=undefined;this.pendingDeleteId='';
+    this.requestUpdate();
     const n=this.selectedNode;if(!n)return;
     this.startDrag({kind:'node',id,pointerId:ev.pointerId,screenStart:{x:ev.clientX,y:ev.clientY},start:this.at(ev),origin:{x:n.x,y:n.y}});
   }
   private onWaypointDown(ev:PointerEvent,id:string,index:number):void{
     ev.preventDefault();ev.stopPropagation();
-    this.edgeId=id;this.nodeId='';
+    this.edgeId=id;this.nodeId='';this.requestUpdate();
     const p=this.diagram.connections.find(e=>e.id===id)?.waypoints?.[index];
     if(!p)return;
     this.startDrag({kind:'waypoint',id,index,pointerId:ev.pointerId,start:this.at(ev),origin:{...p}});
@@ -173,7 +177,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     if(ev.shiftKey){
       ev.preventDefault();
       this.startDrag({kind:'pan',pointerId:ev.pointerId,start:{x:ev.clientX,y:ev.clientY},origin:{...this.pan}});
-    }else{this.nodeId='';this.edgeId='';this.portStart=undefined;}
+    }else{this.nodeId='';this.edgeId='';this.portStart=undefined;this.pendingDeleteId='';this.requestUpdate();}
   }
   private onPointerMove(ev:PointerEvent):void{
     if(!this.drag||(this.drag.pointerId!==undefined&&ev.pointerId!==this.drag.pointerId))return;
@@ -191,6 +195,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
       const rect=el.getBoundingClientRect(),dx=ev.clientX-this.drag.start.x,dy=ev.clientY-this.drag.start.y;
       const k=Math.max(this.diagram.width/this.zoom/rect.width,this.diagram.height/this.zoom/rect.height);
       this.pan={x:this.drag.origin.x-dx*k,y:this.drag.origin.y-dy*k};
+      this.requestUpdate();
       return;
     }
     const p=this.at(ev),dx=p.x-this.drag.start.x,dy=p.y-this.drag.start.y;
@@ -218,18 +223,18 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   }
   private onPortDown(ev:PointerEvent,node:string,port:string):void{
     ev.preventDefault();ev.stopPropagation();
-    if(!this.portStart){this.portStart={node,port};this.nodeId=node;this.edgeId='';this.notice='Select the target port to connect';return;}
+    if(!this.portStart){this.portStart={node,port};this.nodeId=node;this.edgeId='';this.notice='Select the target port to connect';this.requestUpdate();return;}
     const start=this.portStart;this.portStart=undefined;
-    if(start.node===node&&start.port===port)return;
+    if(start.node===node&&start.port===port){this.requestUpdate();return;}
     const a=this.diagram.nodes.find(n=>n.id===start.node)?.ports.find(p=>p.id===start.port);
     const b=this.diagram.nodes.find(n=>n.id===node)?.ports.find(p=>p.id===port);
     if(!a||!b||start.node===node||!portCompatible(a,b)){
-      this.notice='Incompatible electrical ports (AC/DC/polarity/direction) or same device';return;
+      this.notice='Incompatible electrical ports (AC/DC/polarity/direction) or same device';this.requestUpdate();return;
     }
     if(this.diagram.connections.some(e=>
       (e.from.node===start.node&&e.from.port===start.port&&e.to.node===node&&e.to.port===port)||
       (e.from.node===node&&e.from.port===port&&e.to.node===start.node&&e.to.port===start.port))){
-      this.notice='These ports are already connected';return;
+      this.notice='These ports are already connected';this.requestUpdate();return;
     }
     const edge:PowerConnection={id:makeId('edge'),from:start,to:{node,port}};
     this.diagram.connections.push(edge);
@@ -272,7 +277,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   }
   private addPort():void{
     const n=this.selectedNode;if(!n)return;
-    if(n.ports.length>=30){this.notice='Maximum 30 ports per component';return;}
+    if(n.ports.length>=30){this.notice='Maximum 30 ports per component';this.requestUpdate();return;}
     n.ports.push({id:makeId('port'),label:'NEW',kind:'signal',direction:'both',side:'right'});this.emit();
   }
   private removePort(portId:string):void{
@@ -288,6 +293,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
       if(count>0&&this.pendingDeleteId!==id){
         this.pendingDeleteId=id;
         this.notice=`Удаление этого устройства также удалит ${count} подключённых линий. Нажми Delete selected ещё раз для подтверждения.`;
+        this.requestUpdate();
         return;
       }
       this.diagram.nodes=this.diagram.nodes.filter(n=>n.id!==id);
@@ -361,11 +367,12 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
         this.config.library=(raw.library as PowerNode[]).filter(x=>x&&typeof x.name==='string'&&Array.isArray(x.ports)).slice(0,100);
       }
       this.nodeId='';this.edgeId='';this.notice='Diagram imported';this.emit();
-    }catch(e){this.notice=`Import failed: ${String(e)}`;}
+    }catch(e){this.notice=`Import failed: ${String(e)}`;this.requestUpdate();}
     input.value='';
   }
   private setZoom(value:number):void{
     this.zoom=Math.max(0.45,Math.min(4,Math.round(value*100)/100));
+    this.requestUpdate();
   }
   private templateOptions(){
     return html`
@@ -518,6 +525,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     this.edgeId=raw.startsWith('edge:')?raw.slice(5):'';
     this.portStart=undefined;
     this.pendingDeleteId='';
+    this.requestUpdate();
   }
   private renderWorkspace(){
     // Keep the workspace render dependent on every committed mutation.
@@ -541,7 +549,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
         </select>
         <button class="danger" ?disabled=${!this.nodeId&&!this.edgeId} @click=${()=>this.deleteSelected()}>
           ${this.nodeId&&this.pendingDeleteId===this.nodeId?'⚠ Confirm delete':'🗑 Delete selected'}</button>
-        ${this.pendingDeleteId?html`<button type="button" @click=${()=>{this.pendingDeleteId='';this.notice='';}}>Cancel delete</button>`:nothing}
+        ${this.pendingDeleteId?html`<button type="button" @click=${()=>{this.pendingDeleteId='';this.notice='';this.requestUpdate();}}>Cancel delete</button>`:nothing}
       </div>
       <details class="upfc-palette"><summary>Equipment palette — click to add or drag onto canvas</summary>
         <div class="upfc-toolbar">${Object.entries(PRESETS).map(([type,p])=>html`
@@ -553,7 +561,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
         <button @click=${()=>this.setZoom(this.zoom*1.3)}>+</button>
         <span>${Math.round(this.zoom*100)}%</span>
         <button @click=${()=>this.setZoom(this.zoom/1.3)}>−</button>
-        <button @click=${()=>{this.zoom=1;this.pan={x:0,y:0};}}>Reset view</button>
+        <button @click=${()=>{this.zoom=1;this.pan={x:0,y:0};this.requestUpdate();}}>Reset view</button>
         <button @click=${()=>this.exportJson()}>Export JSON</button>
         <label>Import JSON <input type="file" accept=".json,application/json" @change=${(ev:Event)=>void this.importJson(ev)}/></label>
       </div>
