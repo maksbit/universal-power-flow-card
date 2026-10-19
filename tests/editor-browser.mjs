@@ -115,6 +115,15 @@ try{
  await workspace.locator('.upfc-inspector > input').nth(1).press('Tab');
  assert.ok((await page.evaluate(()=>window.upfcTest.events.length))>eventsBeforeEdit,
    'node properties must remain editable immediately after repeat drag');
+ // Regression: Home Assistant may swallow a pointerup during dialog re-render.
+ // The next pointerdown on a form control must recover the editor immediately.
+ await page.evaluate(()=>{
+   const e=window.upfcTest.editor;
+   e.drag={kind:'node',id:'gen',pointerId:98,start:{x:0,y:0},origin:{x:0,y:0},moved:true};
+ });
+ await workspace.locator('.upfc-inspector > input').nth(1).click();
+ assert.equal((await inspect()).drag,undefined,'new click must recover stale drag state');
+
  // Moving a different node must not be blocked by the first object's listeners.
  const third=nodes.nth(2);
  const box3=await third.boundingBox();assert.ok(box3);
@@ -146,7 +155,7 @@ try{
  await editor.getByRole('button',{name:/Full-screen editor/}).click();
  assert.equal(await workspace.isVisible(),true,'can reopen full screen without moving equipment');
  assert.deepEqual(errors,[],'page console has no unhandled JS errors');
- console.log('BROWSER E2E PASS: single click, editor changes, HA config echo, add, drag, delete, sensor select, modal reopen');
+ console.log('BROWSER E2E PASS: select, repeated drag, inline property edit, lost-pointerup recovery, cross-node drag, delete, sensor select, reopen');
 }catch(err){
  console.error('BROWSER E2E FAILURE:',err);
  if(typeof page!=='undefined') {
