@@ -5,10 +5,11 @@ import {CardConfig,PowerNode,PowerConnection,PowerPort,PowerDiagram,
   PORT_KINDS,PORT_SIDES,PORT_DIRECTIONS,parseDiagram,cloneDiagram,makeId,portCompatible,
   validateDiagram,Point,PortKind,PortDirection,PortSide} from './model';
 import {PRESETS,createNode,demoDiagram} from './presets';
-import {renderDiagram,CanvasEvents,connectionPoints} from './render';
+import {renderDiagram,CanvasEvents,connectionPoints,resolveEdgePower,flowDescription} from './render';
 import {universalStyles} from './styles';
 import {SVG_MODELS,defaultModel} from './device-art';
-import {filteredEntities,SensorKind} from './entities';
+import type {SensorKind} from './entities';
+import './entity-picker';
 import {compactLegacyDiagram} from './migration';
 
 type Drag = {kind:'node'|'waypoint'|'pan';id?:string;index?:number;
@@ -27,7 +28,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   @state() private pan:Point={x:0,y:0};
   @state() private expanded=false;
   @state() private revision=0;
-  @state() private entitySearch:Record<string,string>={};
+  private lastEmittedSignature='';
   private drag?:Drag;
   private readonly instanceId=makeId('editor');
   private readonly moveListener=(ev:PointerEvent)=>this.onPointerMove(ev);
@@ -91,6 +92,9 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     wheel:ev=>{if(ev.ctrlKey){ev.preventDefault();this.setZoom(this.zoom*(ev.deltaY<0?1.15:0.87));}}
   };
   public setConfig(c:CardConfig):void{
+    // HA replays the config we just emitted. Do not destroy the active picker,
+    // drag position, search focus, selected node or full-screen dialog.
+    if(JSON.stringify(c)===this.lastEmittedSignature)return;
     try{
       const original=c.diagram?parseDiagram(c.diagram):demoDiagram();
       const migrated=compactLegacyDiagram(original);
@@ -105,10 +109,15 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private get selectedNode():PowerNode|undefined{return this.diagram.nodes.find(n=>n.id===this.nodeId);}
   private get selectedEdge():PowerConnection|undefined{return this.diagram.connections.find(e=>e.id===this.edgeId);}
   private emit():void{
+    for(const n of this.diagram.nodes){
+      if(n.powerFlowEdgeId&&!this.diagram.connections.some(e=>e.id===n.powerFlowEdgeId &&
+        (e.from.node===n.id||e.to.node===n.id)))delete n.powerFlowEdgeId;
+    }
     // Never expose mutable live arrays to Home Assistant. Publishing a fresh
     // snapshot and incrementing a reactive revision updates both editor and preview.
     const next:CardConfig={...this.config,diagram:cloneDiagram(this.diagram)};
     this.config=next;
+    this.lastEmittedSignature=JSON.stringify(next);
     this.revision++;
     this.requestUpdate();
     this.dispatchEvent(new CustomEvent('config-changed',{
@@ -334,23 +343,28 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     `;
   }
   private entityInput(key:string,kind:SensorKind,value:string|undefined,update:(id:string)=>void){
-    const query=this.entitySearch[key]??'';
-    const matches=query.trim().length>=2?filteredEntities(this.hass,kind,query,12):[];
-    return html`<div class="upfc-entity-picker">
-      <input type="text" placeholder="sensor.entity_id" .value=${value??''}
-        @change=${(e:Event)=>update((e.currentTarget as HTMLInputElement).value.trim())}/>
-      <input type="search" class="upfc-entity-search" placeholder="Поиск по названию или entity_id (${kind})"
-        .value=${query} @input=${(e:Event)=>{
-          this.entitySearch={...this.entitySearch,[key]:(e.currentTarget as HTMLInputElement).value};
-        }}/>
-      ${matches.length?html`<div class="upfc-entity-results">
-        ${matches.map(m=>html`<button type="button" title="${m.id}" @click=${()=>{
-          update(m.id);this.entitySearch={...this.entitySearch,[key]:''};
-        }}>
-          <span>${m.label}<small>${m.id}</small></span>
-          <strong>${m.state} ${m.unit}</strong>
-        </button>`)}
-      </div>`:query.trim().length>=2?html`<div class="upfc-subtle">Ничего не найдено среди датчиков категории ${kind}. Entity ID можно вписать вручную.</div>`:nothing}
+    return html`<upfc-entity-picker .hass=${this.hass} .kind=${kind}
+      .fieldKey=${key} .value=${value??''}
+      @entity-selected=${(ev:CustomEvent<{value:string}>)=>{
+        ev.stopPropagation();update(ev.detail.value);
+      }}></upfc-entity-picker>`;
+  }
+  private renderNodeFlowDiagnostic(n:PowerNode){
+    const links=this.diagram.connections.filter(e=>{
+      if(e.from.node!==n.id&&e.to.node!==n.id)return false;
+      const portId=e.from.node===n.id?e.from.port:e.to.port;
+      return n.ports.find(p=>p.id===portId)?.kind!=='signal';
+    });
+    const selected=n.powerFlowEdgeId?links.find(e=>e.id===n.powerFlowEdgeId):links.length===1?links[0]:undefined;
+    return html`<div class="upfc-diagnostic" aria-live="polite">
+      <strong>Проверка анимации устройства</strong>
+      <p>Назначено: ${n.powerEntity||'датчик мощности не выбран'}</p>
+      <p>Показание: ${n.powerEntity?(this.hass?.states[n.powerEntity]?.state??'сущность отсутствует'):'—'}
+        ${n.powerEntity?String(this.hass?.states[n.powerEntity]?.attributes?.unit_of_measurement??''):''}</p>
+      <p>Силовых соединений: ${links.length}. Применяемая линия: ${selected?.name||selected?.id||'не определена'}.</p>
+      <p class="upfc-subtle">${!n.powerEntity?'Для анимации нужна числовая мощность (W, kW, MW).':
+         !selected?'При нескольких линиях выбери конкретную связь ниже.':
+         flowDescription(this.diagram,selected,this.hass,this.config.animation!==false)}</p>
     </div>`;
   }
   private renderNodeInspector(n:PowerNode){
@@ -369,6 +383,16 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
         <option value="out">Положительное = отдаёт энергию (разряд батареи)</option>
         <option value="in">Положительное = принимает энергию (заряд батареи)</option>
       </select>
+      <label>К какой линии применять мощность устройства</label>
+      <select .value=${n.powerFlowEdgeId??''}
+        @change=${(ev:Event)=>this.changeNode('powerFlowEdgeId',
+          (ev.currentTarget as HTMLSelectElement).value||undefined)}>
+        <option value="">Автоматически, если одна силовая линия</option>
+        ${this.diagram.connections.filter(e=>e.from.node===n.id||e.to.node===n.id)
+          .filter(e=>n.ports.find(p=>p.id===(e.from.node===n.id?e.from.port:e.to.port))?.kind!=='signal')
+          .map(e=>html`<option value="${e.id}">${e.name||e.id}: ${e.from.node} → ${e.to.node}</option>`)}
+      </select>
+      ${this.renderNodeFlowDiagnostic(n)}
       <label>SOC аккумулятора (%)</label>
       ${this.entityInput('node-soc:'+n.id,'soc',n.socEntity,v=>this.changeNode('socEntity',v))}
       <label>Напряжение (V)</label>
@@ -415,6 +439,12 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
       <label>Label (optional)</label><input .value=${e.name??''}
         @change=${(ev:Event)=>this.changeEdge('name',(ev.currentTarget as HTMLInputElement).value)}/>
       <label>Power sensor (W/kW/MW)</label>${this.entityInput('edge-power:'+e.id,'power',e.powerEntity,v=>this.changeEdge('powerEntity',v))}
+      <div class="upfc-diagnostic" aria-live="polite">
+        <strong>Текущее состояние потока</strong>
+        <p>${flowDescription(this.diagram,e,this.hass,this.config.animation!==false)}</p>
+        <p>Источник: ${resolveEdgePower(this.diagram,e,this.hass).origin==='edge'?'датчик линии':
+          resolveEdgePower(this.diagram,e,this.hass).origin==='node'?'датчик оборудования':'не назначен'}</p>
+      </div>
       <label><input type="checkbox" style="width:auto" .checked=${!!e.invert}
         @change=${(ev:Event)=>this.changeEdge('invert',(ev.currentTarget as HTMLInputElement).checked)}/> Reverse positive direction</label>
       <p class="upfc-subtle">Мощность линии имеет приоритет. Если её нет, используется мощность устройства только при одной энергосвязи. Нулевое или недоступное измерение останавливает анимацию.</p>

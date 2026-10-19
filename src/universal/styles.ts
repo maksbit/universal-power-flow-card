@@ -60,6 +60,13 @@ input,textarea{width:100%}
 .upfc-entity-results small{display:block;font-size:10px;opacity:.68;word-break:break-all}
 .upfc-entity-results strong{white-space:nowrap;font-size:12px}
 .upfc-compact-workspace[hidden]{display:none}
+
+.upfc-diagnostic{margin:10px 0;padding:10px;border:1px solid var(--divider-color,#667582);
+  background:var(--secondary-background-color,var(--primary-background-color,#192c38));border-radius:7px;
+  font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.upfc-diagnostic strong{display:block;margin-bottom:6px}
+.upfc-diagnostic p{margin:4px 0}
+.upfc-flow-dot{pointer-events:none;filter:drop-shadow(0 0 3px rgba(255,255,255,.65))}
 @media(max-width:850px){
   .upfc-dialog .upfc-layout{grid-template-columns:1fr}
   .upfc-dialog .upfc-canvas{height:60vh;min-height:300px}

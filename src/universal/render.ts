@@ -45,52 +45,76 @@ export function portPosition(n: PowerNode, p: PowerPort): Point {
   return {x:cx+dx*Math.cos(rad)-dy*Math.sin(rad),
     y:cy+dx*Math.sin(rad)+dy*Math.cos(rad)};
 }
-export function sensorPower(entity: string|undefined, hass?:HassLike): number|null {
-  if(!entity || !hass?.states?.[entity])return null;
-  const state=hass.states[entity];
-  if(['unknown','unavailable','none',''].includes(state.state.trim().toLowerCase()))return null;
-  const n=Number(state.state);
+export function sensorPower(entity:string|undefined,hass?:HassLike):number|null{
+  const state=entity?hass?.states?.[entity]:undefined;
+  if(!state)return null;
+  const raw=String(state.state??'').trim();
+  if(!raw||['unknown','unavailable','none','nan'].includes(raw.toLowerCase()))return null;
+  const n=Number(raw);
   if(!Number.isFinite(n))return null;
-  const unit=String(state.attributes?.unit_of_measurement??'W').trim();
-  if(unit==='kW')return n*1000;
-  if(unit==='MW')return n*1000000;
-  if(unit==='W')return n;
+  const unit=String(state.attributes?.unit_of_measurement??'W').trim().toLowerCase();
+  if(unit==='kw')return n*1000;
+  if(unit==='mw')return n*1000000;
+  if(unit==='w'||unit==='watt'||unit==='watts'||unit==='')return n;
   return null;
 }
-export interface ResolvedPower {watts:number|null; entity:string|undefined; origin:'edge'|'node'|'none'}
-export function resolveEdgePower(diagram:PowerDiagram,e:PowerConnection,hass?:HassLike):ResolvedPower{
-  // Explicit sensor on a connection always has precedence, including unavailable.
-  if(e.powerEntity)return {watts:(()=>{
+export interface ResolvedPower {
+  watts:number|null;
+  entity:string|undefined;
+  origin:'edge'|'node'|'none';
+  reason:string;
+}
+export function resolveEdgePower(diagram:PowerDiagram,e:PowerConnection,hass?:HassLike):ResolvedPower {
+  // An explicit edge sensor takes precedence; missing/unknown is not a zero reading.
+  if(e.powerEntity){
     const measured=sensorPower(e.powerEntity,hass);
-    return measured===null?null:(e.invert?-measured:measured);
-  })(),entity:e.powerEntity,origin:'edge'};
+    return {watts:measured===null?null:measured*(e.invert?-1:1),
+      entity:e.powerEntity,origin:'edge',
+      reason:measured===null?'Датчик линии не возвращает числовую мощность (W/kW/MW)':
+        Math.abs(measured)<.1?'Мощность равна нулю':'Мощность линии получена'};
+  }
   const kind=diagram.nodes.find(n=>n.id===e.from.node)?.ports.find(p=>p.id===e.from.port)?.kind;
-  if(kind==='signal')return {watts:null,entity:undefined,origin:'none'};
+  if(kind==='signal')return {watts:null,entity:undefined,origin:'none',reason:'Сигнальная линия не передаёт мощность'};
+  let ambiguous=false;
   for(const [nodeId,isSource] of [[e.from.node,true],[e.to.node,false]] as const){
     const node=diagram.nodes.find(n=>n.id===nodeId);
     if(!node?.powerEntity)continue;
-    // Never propagate aggregate inverter/bus readings to all branches or double-count:
-    // implicit telemetry only applies to a device with one connected power circuit.
+    // A node with several power ports may bind its meter to exactly one
+    // explicitly selected link, but must NEVER broadcast one reading to all links.
     const count=diagram.connections.filter(x=>{
       if(x.from.node!==nodeId&&x.to.node!==nodeId)return false;
       const portNode=x.from.node===nodeId?x.from:x.to;
       const pk=node.ports.find(p=>p.id===portNode.port)?.kind;
       return pk!=='signal';
     }).length;
-    if(count!==1)continue;
+    if(node.powerFlowEdgeId){
+      if(node.powerFlowEdgeId!==e.id)continue;
+    }else if(count!==1){ambiguous=true;continue;}
     const reading=sensorPower(node.powerEntity,hass);
     const positiveSign=(node.powerPositive??'out')==='out'?1:-1;
     const orientation=isSource?1:-1;
-    return {watts:reading===null?null:reading*positiveSign*orientation*(e.invert?-1:1),
-      entity:node.powerEntity,origin:'node'};
+    const watts=reading===null?null:reading*positiveSign*orientation*(e.invert?-1:1);
+    return {watts,entity:node.powerEntity,origin:'node',
+      reason:reading===null?'Датчик устройства недоступен либо не содержит мощность':
+        Math.abs(reading)<.1?'Мощность равна нулю':'Направление получено по мощности устройства'};
   }
-  return {watts:null,entity:undefined,origin:'none'};
+  return {watts:null,entity:undefined,origin:'none',
+    reason:ambiguous?'Устройство имеет несколько силовых соединений: выберите конкретную линию для датчика мощности':
+      'Назначьте датчик мощности линии или подключённому устройству'};
 }
 function powerText(w:number|null):string{
   if(w===null)return '—';
   if(Math.abs(w)>=1000000)return `${(w/1000000).toFixed(2)} MW`;
   if(Math.abs(w)>=1000)return `${(w/1000).toFixed(2)} kW`;
   return `${w.toFixed(Math.abs(w)<10?1:0)} W`;
+}
+export function flowDescription(d:PowerDiagram,e:PowerConnection,hass?:HassLike,animation=true):string{
+  if(!connectionPoints(d,e))return 'Маршрут соединения не построен — поток не отображается';
+  if(!animation)return 'Анимация карточки отключена в настройках';
+  const r=resolveEdgePower(d,e,hass);
+  if(r.watts===null)return r.reason+(r.entity?` [${r.entity}]`:'');
+  if(Math.abs(r.watts)<.1)return 'Мощность 0 W; точка остановлена';
+  return `${powerText(r.watts)} · ${r.watts>0?'от начала к концу':'от конца к началу'} · ${r.entity??''}`;
 }
 type RouteAxis = 'horizontal' | 'vertical';
 function portNormal(node: PowerNode, port: PowerPort): Point {
@@ -142,6 +166,9 @@ export function connectionPoints(diagram:PowerDiagram,e:PowerConnection,occupied
   }))return null;
   return pts;
 }
+export function flowMotionPath(points:Point[],watts:number):string {
+  return pathOf(watts<0?[...points].reverse():points);
+}
 export function pathOf(points:Point[]):string{
   return points.map((p,i)=>`${i?'L':'M'} ${finite(p.x).toFixed(1)} ${finite(p.y).toFixed(1)}`).join(' ');
 }
@@ -189,14 +216,18 @@ export function renderDiagram(o:CanvasOptions) {
           fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="${watts===null?0.65:1}"/>
         <path class="upfc-edge-hit" d="${pathOf(points)}" @click=${()=>events?.edgeClick?.(e.id)}
           @dblclick=${(ev:MouseEvent)=>events?.edgeDoubleClick?.(ev,e.id)}/>
-        ${active?svg`<circle r="5" fill="${color}" stroke="#fff" stroke-width="1">
-          <animateMotion path="${pathOf(points)}" dur="${duration}s" repeatCount="indefinite"
-            keyPoints="${watts!<0?'1;0':'0;1'}" keyTimes="0;1" calcMode="linear"/>
-
-        </circle>`:svg``}
+        ${active?svg`
+          <circle cx="${m.x}" cy="${m.y}" r="4" fill="${color}" stroke="#fff" stroke-width="1" opacity=".7">
+            <title>Активный поток: ${powerText(watts)} ${watts!<0?'←':'→'}</title>
+          </circle>
+          <circle r="6" fill="${color}" stroke="#fff" stroke-width="1.5" class="upfc-flow-dot">
+            <animateMotion path="${flowMotionPath(points,watts!)}"
+              dur="${duration}s" repeatCount="indefinite" calcMode="linear"/>
+          </circle>
+        `:svg``}
         ${reading.entity||e.name?svg`<g class="upfc-edge-label" transform="translate(${m.x} ${m.y-12})">
           <rect x="-62" y="-13" width="124" height="22" rx="6" fill="var(--ha-card-background,var(--card-background-color,#192632))" stroke="${color}" stroke-opacity=".6"/>
-          <text text-anchor="middle" font-size="12" fill="var(--primary-text-color,#ddd)">${e.name?e.name+': ':''}${powerText(watts)}</text>
+          <text text-anchor="middle" font-size="12" fill="var(--primary-text-color,#ddd)">${e.name?e.name+': ':''}${watts===null?'—':watts<0?'← ':'→ '}${powerText(watts)}</text>
         </g>`:svg``}
         ${edit&&o.selectedEdge===e.id? (e.waypoints??[]).map((p,i)=>svg`<circle class="upfc-waypoint" cx="${p.x}" cy="${p.y}" r="9"
           @pointerdown=${(ev:PointerEvent)=>events?.waypointDown?.(ev,e.id,i)}/>`):svg``}

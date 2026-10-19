@@ -19,6 +19,8 @@ export interface PowerNode extends Point {
   modelId?: string;
   /** Signed equipment power reading (W/kW/MW). */
   powerEntity?: string;
+  /** Optional explicit outgoing/incoming edge for device power telemetry. */
+  powerFlowEdgeId?: string;
   /** How to interpret a positive device power value. */
   powerPositive?: 'out' | 'in';
   voltageEntity?: string;
@@ -136,6 +138,13 @@ export function validateDiagram(d: PowerDiagram): string[] {
     if (e.waypoints !== undefined && (!Array.isArray(e.waypoints) || e.waypoints.length > 30 ||
       e.waypoints.some(p=>!validNumber(p.x) || !validNumber(p.y) || Math.abs(p.x)>10000 || Math.abs(p.y)>10000)))
       errors.push(`Invalid waypoints: ${e.id}`);
+  }
+  for(const n of d.nodes){
+    if(n.powerFlowEdgeId!==undefined){
+      const edge=d.connections.find(e=>e.id===n.powerFlowEdgeId);
+      if(!edge||![edge.from.node,edge.to.node].includes(n.id))
+        errors.push(`Invalid flow connection selection: ${n.id}`);
+    }
   }
   return errors;
 }

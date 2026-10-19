@@ -14,7 +14,9 @@ export function filteredEntities(hass:HassLike|undefined,kind:SensorKind,query:s
  const keys=q.split(/\s+/).filter(Boolean);
  const options:EntityOption[]=[];
  for(const [id,state] of Object.entries(hass.states)){
-   if(!id.startsWith('sensor.')&&!(kind==='any'&&id.startsWith('binary_sensor.')))continue;
+   // Typed filters prefer sensors; expanded search can find input_number and other
+   // numeric entities used by custom integrations as power signals.
+   if(kind!=='any'&&!id.startsWith('sensor.'))continue;
    const attrs=state.attributes??{};
    const unit=String(attrs.unit_of_measurement??'');
    const label=String(attrs.friendly_name??id);

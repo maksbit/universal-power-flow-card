@@ -21,6 +21,16 @@ title: Telecom power infrastructure
 
 The card initially shows the **example topology** with no animated values; telemetry is not fabricated. Open the visual editor to bind each edge to its power sensor.
 
+## v0.2.1 — Home Assistant sensor picker and flow diagnostics
+
+- Entity selection uses a dedicated, continuously visible autocomplete component with a search input and suggestions from the first keystroke, not the former delayed two-character list. Choose a sensor by friendly name or entity ID, inspect its live state and unit, or enable **Показать все сенсоры** to find custom integration entities including `input_number.*`.
+- Each device/connection inspector now includes **Проверка анимации** status that explains missing sensor, invalid/non-numeric or wrong-unit state, disabled animation, blocked route, zero power, and sign/direction.
+- A battery power entity drives its single power link automatically. For equipment with multiple power links, explicitly select the target link to avoid applying the same aggregate reading to every branch.
+- Active power connections show a directional indicator plus an SMIL animated dot. Negative power reverses the actual SVG motion path rather than relying on browser-specific keyPoints/keyTimes behavior.
+- The editor now ignores identical configuration echoes from Home Assistant to avoid resetting the entity picker and open fullscreen dialog.
+
+**Acceptance in HA:** install v0.2.1, select Battery, search the **Мощность** sensor and observe its current numeric state, then verify the diagnostic status on the battery's logical DC link; compare charge/discharge directions. Values from SOC or boolean discharge status alone cannot determine power flow direction.
+
 ## v0.2.0 — logical power flow and native SVG equipment
 
 - DC and PV circuits are **one logical power-flow connection each**, not individual DC+ and DC− conductors. This is a live dashboard, not a wiring design. AC, DC, PV and generator-start/control stay distinct.
