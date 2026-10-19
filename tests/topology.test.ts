@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {cloneDiagram,parseDiagram,portCompatible,validateDiagram,PowerPort} from '../src/universal/model';
 import {createNode,demoDiagram} from '../src/universal/presets';
-import {connectionPoints,sensorPower,portPosition,automaticLaneOffset,resolveEdgePower,flowMotionPath,flowDescription} from '../src/universal/render';
+import {connectionPoints,sensorPower,portPosition,automaticLaneOffset,resolveEdgePower,flowMotionPath,flowDescription,renderDiagram} from '../src/universal/render';
 import {compactLegacyDiagram} from '../src/universal/migration';
 import {PRESETS} from '../src/universal/presets';
 import {SVG_MODELS} from '../src/universal/device-art';
@@ -294,4 +294,24 @@ test('missing, zero and non-power entity produce clear flow diagnostics',()=>{
   h.states['sensor.battery_soc'].attributes.unit_of_measurement='W';
   h.states['sensor.battery_soc'].state='0';
   assert.match(flowDescription(d,e,h),/0 W/);
+});
+
+test('rendered battery flow includes a live SVG animation when a numeric power sensor is bound',()=>{
+  const d=demoDiagram(),battery=d.nodes.find(n=>n.id==='battery')!;
+  battery.powerEntity='sensor.battery_power';
+  const hass={states:{'sensor.battery_power':{state:'-0.7',attributes:{unit_of_measurement:'kW'}}}};
+  const batteryLink=d.connections.find(e=>e.id==='bat_dc')!;
+  assert.ok(connectionPoints(d,batteryLink),'battery must have a routable animated DC link');
+  const template=renderDiagram({diagram:d,hass,instanceId:'integration',animate:true});
+  const flatten=(value:unknown):string=>{
+    if(Array.isArray(value))return value.map(flatten).join('');
+    if(value&&typeof value==='object'){
+      const t=value as {strings?:readonly string[];values?:unknown[]};
+      if(t.strings&&t.values)return t.strings.join('')+t.values.map(flatten).join('');
+    }
+    return '';
+  };
+  const markup=flatten(template);
+  assert.ok(markup.includes('upfc-flow-dot'),'expected an active SVG flow dot template');
+  assert.ok(markup.includes('animateMotion'),'expected a browser SVG animation template');
 });
