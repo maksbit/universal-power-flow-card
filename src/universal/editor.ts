@@ -12,7 +12,7 @@ import type {SensorKind} from './entities';
 import './entity-picker';
 import {compactLegacyDiagram} from './migration';
 
-type Drag = {kind:'node'|'waypoint'|'pan';id?:string;index?:number;
+type Drag = {kind:'node'|'waypoint'|'pan';id?:string;index?:number;pointerId?:number;
   start:Point;origin:Point;moved?:boolean};
 @customElement('universal-power-flow-card-editor')
 export class UniversalPowerFlowEditor extends LitElement implements LovelaceCardEditor{
@@ -29,20 +29,27 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   @state() private expanded=false;
   @state() private revision=0;
   private lastEmittedSignature='';
+  private lastInboundSignature='';
+  private localEditsPending=false;
   private drag?:Drag;
   private readonly instanceId=makeId('editor');
   private readonly moveListener=(ev:PointerEvent)=>this.onPointerMove(ev);
   private readonly upListener=(ev:PointerEvent)=>this.onPointerUp(ev);
   private readonly keyboardListener=(ev:KeyboardEvent)=>this.onKeyDown(ev);
+  private readonly blurListener=()=>this.endDrag();
+  private readonly visibilityListener=()=>{if(document.visibilityState==='hidden')this.endDrag();};
   public connectedCallback():void{
     super.connectedCallback();
     window.addEventListener('keydown',this.keyboardListener);
+    window.addEventListener('blur',this.blurListener);
+    document.addEventListener('visibilitychange',this.visibilityListener);
   }
   public disconnectedCallback():void{
     super.disconnectedCallback();
     window.removeEventListener('keydown',this.keyboardListener);
+    window.removeEventListener('blur',this.blurListener);
+    document.removeEventListener('visibilitychange',this.visibilityListener);
     this.endDrag();
-    this.renderRoot.querySelector<HTMLDialogElement>('dialog')?.close();
   }
   private onKeyDown(ev:KeyboardEvent):void{
     if(ev.key==='Escape' && this.expanded){this.closeExpanded();return;}
@@ -54,23 +61,20 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     if(!this.nodeId&&!this.edgeId)return;
     ev.preventDefault();this.deleteSelected();
   }
-  private async openExpanded():Promise<void>{
-    const dialog=this.renderRoot.querySelector<HTMLDialogElement>('dialog.upfc-dialog');
-    if(!dialog){this.notice='Full-screen dialog is not ready';return;}
-    if(!dialog.open){
-      try{dialog.showModal();}catch(e){this.notice='Unable to open editor: '+String(e);return;}
-    }
+  private openExpanded():void{
+    this.endDrag();
+    // HA already uses a modal with its own focus trap. Nested native dialogs
+    // can swallow clicks/pointerup on subsequent editor updates.
     this.expanded=true;
-    this.requestUpdate();
-    await this.updateComplete;
+    this.notice='';
   }
   private closeExpanded():void{
     this.endDrag();
-    const dialog=this.renderRoot.querySelector<HTMLDialogElement>('dialog.upfc-dialog');
-    if(dialog?.open)dialog.close();
     this.expanded=false;
+    this.localEditsPending=false;
   }
   private startDrag(next:Drag):void{
+    this.endDrag();
     this.drag=next;
     window.addEventListener('pointermove',this.moveListener,{capture:true});
     window.addEventListener('pointerup',this.upListener,{capture:true});
@@ -84,6 +88,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   }
   private readonly canvasEvents:CanvasEvents={
     nodeDown:(ev,id)=>this.onNodeDown(ev,id),
+    nodeClick:(ev,id)=>this.onNodeClick(ev,id),
     portDown:(ev,node,port)=>this.onPortDown(ev,node,port),
     edgeClick:id=>{this.nodeId='';this.edgeId=id;this.portStart=undefined;},
     edgeDoubleClick:(ev,id)=>this.onEdgeDoubleClick(ev,id),
@@ -94,7 +99,11 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   public setConfig(c:CardConfig):void{
     // HA replays the config we just emitted. Do not destroy the active picker,
     // drag position, search focus, selected node or full-screen dialog.
-    if(JSON.stringify(c)===this.lastEmittedSignature)return;
+    const incomingSignature=JSON.stringify(c);
+    if(incomingSignature===this.lastEmittedSignature||incomingSignature===this.lastInboundSignature)return;
+    // Prevent obsolete HA config echoes from replacing in-progress local edits.
+    if(this.expanded&&this.localEditsPending)return;
+    this.lastInboundSignature=incomingSignature;
     try{
       const original=c.diagram?parseDiagram(c.diagram):demoDiagram();
       const migrated=compactLegacyDiagram(original);
@@ -118,6 +127,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     const next:CardConfig={...this.config,diagram:cloneDiagram(this.diagram)};
     this.config=next;
     this.lastEmittedSignature=JSON.stringify(next);
+    this.localEditsPending=true;
     this.revision++;
     this.requestUpdate();
     this.dispatchEvent(new CustomEvent('config-changed',{
@@ -126,7 +136,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   }
   private get svgEl():SVGSVGElement|null{
     return this.expanded?
-      this.renderRoot.querySelector('dialog.upfc-dialog svg.upfc-canvas'):
+      this.renderRoot.querySelector('.upfc-fullscreen-workspace svg.upfc-canvas'):
       this.renderRoot.querySelector('.upfc-compact-workspace svg.upfc-canvas');
   }
   private at(ev:PointerEvent|DragEvent|MouseEvent):Point{
@@ -136,12 +146,18 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     return new DOMPoint(ev.clientX,ev.clientY).matrixTransform(mat.inverse());
   }
   private snap(n:number):number{return Math.round(n/12)*12;}
+  private onNodeClick(ev:MouseEvent,id:string):void{
+    if(ev.button!==0)return;
+    ev.stopPropagation();
+    this.nodeId=id;this.edgeId='';this.portStart=undefined;
+  }
   private onNodeDown(ev:PointerEvent,id:string):void{
     if(ev.button!==0)return;
-    ev.preventDefault();ev.stopPropagation();
+    // Do not cancel pointerdown, because the following native click is needed.
+    ev.stopPropagation();
     this.nodeId=id;this.edgeId='';this.portStart=undefined;
     const n=this.selectedNode;if(!n)return;
-    this.startDrag({kind:'node',id,start:this.at(ev),origin:{x:n.x,y:n.y}});
+    this.startDrag({kind:'node',id,pointerId:ev.pointerId,start:this.at(ev),origin:{x:n.x,y:n.y}});
   }
   private onWaypointDown(ev:PointerEvent,id:string,index:number):void{
     ev.preventDefault();ev.stopPropagation();
@@ -552,23 +568,25 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     `;
   }
   protected render(){
-    // Persistent dialog: never conditionally remove a showModal() element.
+    // A fixed in-component workspace prevents nested native HTML modal conflicts.
     return html`<ha-card class="upfc-editor-card">
       <div class="upfc-toolbar">
         <h3>Universal Power Flow Designer</h3>
-        <button class="primary" @click=${()=>void this.openExpanded()}>⛶ Full-screen editor</button>
+        <button type="button" class="primary" @click=${()=>this.openExpanded()}>⛶ Full-screen editor</button>
       </div>
       <div class="upfc-compact-workspace" ?hidden=${this.expanded}>
         ${!this.expanded?this.renderWorkspace():nothing}
       </div>
-      <dialog class="upfc-dialog" @cancel=${(ev:Event)=>{ev.preventDefault();this.closeExpanded();}}
-        @close=${()=>{if(this.expanded)this.expanded=false;}}>
-        <div class="upfc-toolbar">
-          <h3>Universal Power Flow Designer · full screen</h3>
-          <button @click=${()=>this.closeExpanded()}>✕ Close full screen</button>
-        </div>
-        ${this.expanded?this.renderWorkspace():nothing}
-      </dialog>
+      <div class="upfc-dialog upfc-fullscreen-workspace" ?hidden=${!this.expanded}
+        role="dialog" aria-modal="false" aria-label="Universal Power Flow Designer">
+        ${this.expanded?html`
+          <div class="upfc-toolbar">
+            <h3>Universal Power Flow Designer · full screen</h3>
+            <button type="button" @click=${()=>this.closeExpanded()}>✕ Close full screen</button>
+          </div>
+          ${this.renderWorkspace()}
+        `:nothing}
+      </div>
     </ha-card>`;
   }
 }
