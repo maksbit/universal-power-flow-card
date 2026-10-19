@@ -6,6 +6,7 @@ import {drawDeviceModel, defaultModel} from './device-art';
 export interface HassLike { states: Record<string,{state:string;attributes?:Record<string,unknown>}> }
 export interface CanvasEvents {
   nodeDown?: (event: PointerEvent, id: string) => void;
+  nodeClick?: (event: MouseEvent, id: string) => void;
   portDown?: (event: PointerEvent, node: string, port: string) => void;
   edgeClick?: (id: string) => void;
   edgeDoubleClick?: (event: MouseEvent, id: string) => void;
@@ -239,7 +240,10 @@ export function renderDiagram(o:CanvasOptions) {
       const soc=n.socEntity?o.hass?.states?.[n.socEntity]?.state:undefined;
       const label=value===undefined?'':(value==='unknown'||value==='unavailable'?'—':value);
       return svg`<g class="upfc-node ${o.selectedNode===n.id?'selected':''}"
-        @pointerdown=${(ev:PointerEvent)=>events?.nodeDown?.(ev,n.id)}>
+        @pointerdown=${(ev:PointerEvent)=>events?.nodeDown?.(ev,n.id)}
+        @click=${(ev:MouseEvent)=>events?.nodeClick?.(ev,n.id)}
+        tabindex="${edit?0:-1}" role="${edit?'button':'img'}" aria-label="${n.name}"
+        @keydown=${(ev:KeyboardEvent)=>{if((ev.key==='Enter'||ev.key===' ')&&edit){ev.preventDefault();events?.nodeClick?.(ev as unknown as MouseEvent,n.id);}}}>
         <g transform="translate(${cx} ${cy}) rotate(${n.rotation??0}) scale(${n.scale??1}) translate(${-cx} ${-cy})">
           <rect x="${n.x}" y="${n.y}" width="${w}" height="${h}" rx="10" class="upfc-node-box"/>
           <rect x="${n.x}" y="${n.y}" width="${w}" height="5" rx="3" fill="#4c9bc5"/>

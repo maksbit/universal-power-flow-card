@@ -39,11 +39,16 @@ input,textarea{width:100%}
 .upfc-primarybar select{flex:1 1 160px;min-width:100px}
 .upfc-palette{margin:8px 2px;border:1px solid var(--divider-color,#526371);border-radius:8px;padding:8px}
 .upfc-palette summary{cursor:pointer;font-size:13px}
-.upfc-dialog{position:fixed;box-sizing:border-box;width:calc(100vw - 32px);max-width:none;
-  height:calc(100dvh - 28px);max-height:none;margin:auto;padding:14px;
-  overflow:auto;border:1px solid var(--divider-color,#546776);border-radius:12px;
+.upfc-dialog{position:fixed;box-sizing:border-box;inset:12px;width:auto;max-width:none;
+  height:auto;max-height:none;margin:0;padding:14px;z-index:10000;
+  overflow:auto;overscroll-behavior:contain;pointer-events:auto;
+  border:1px solid var(--divider-color,#546776);border-radius:12px;
   background:var(--ha-card-background,var(--card-background-color,#192630));color:var(--primary-text-color,#eee)}
-.upfc-dialog::backdrop{background:rgba(0,0,0,.7)}
+.upfc-dialog[hidden],.upfc-compact-workspace[hidden]{display:none!important}
+.upfc-dialog{box-shadow:0 0 0 100vmax rgba(0,0,0,.82),0 16px 48px rgba(0,0,0,.5)}
+.upfc-dialog button,.upfc-dialog select,.upfc-dialog input{pointer-events:auto}
+.upfc-node{touch-action:none}
+.upfc-node.selected{filter:drop-shadow(0 0 4px var(--primary-color,#03a9f4))}
 .upfc-dialog .upfc-layout{grid-template-columns:minmax(0,1fr) 315px;align-items:start}
 .upfc-dialog .upfc-canvas{width:100%;height:calc(100dvh - 275px);min-height:450px;max-height:none}
 .upfc-dialog .upfc-canvas-shell{min-height:450px}
