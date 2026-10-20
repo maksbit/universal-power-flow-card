@@ -64,7 +64,9 @@ try{
  const workspace=editor.locator('.upfc-fullscreen-workspace');
  await workspace.waitFor({state:'visible',timeout:3000});
  await page.waitForFunction(()=>!!window.upfcTest.editor?.shadowRoot
-   ?.querySelector('.upfc-fullscreen-workspace')?.matches(':fullscreen'),{timeout:7000});
+   ?.querySelector('.upfc-fullscreen-workspace')?.matches(':popover-open'),{timeout:7000});
+ assert.equal(await page.evaluate(()=>document.fullscreenElement),null,
+   'large editor must stay INSIDE the browser tab, not invoke OS/browser fullscreen');
  assert.equal(await page.locator('#ha-dialog').evaluate(e=>e.open),true,'HA dialog remains open');
  const bounds=await workspace.boundingBox();
  assert.ok(bounds&&bounds.width>=1470&&bounds.height>=920&&bounds.x<5&&bounds.y<5,
@@ -84,6 +86,7 @@ try{
  assert.ok((await page.evaluate(()=>window.upfcTest.events.length))>=1,'editor emits config changes');
  // HA's config echo must not reset selected equipment, modal or subsequent events.
  assert.equal(await workspace.isVisible(),true);
+ assert.equal(await workspace.evaluate(el=>el.matches(':popover-open')),true);
  const add=workspace.getByRole('button',{name:/\+ Add equipment/});
  await add.click();
  assert.equal(await nodes.count(),initialCount+1,'add updates diagram immediately');
@@ -104,12 +107,30 @@ try{
  assert.ok(old,'equipment rectangle exists');
  await page.mouse.move(old.x+old.width/2,old.y+old.height/2);
  await page.mouse.down();
+ // Mimic real HA: telemetry is updated during drag and a stale config echo
+ // arrives while pointermove is running.
+ await page.evaluate(()=>{
+   const ed=window.upfcTest.editor;
+   window.upfcTest.staleConfig=structuredClone(ed.config);
+   ed.hass={states:{
+     'sensor.battery_power':{state:'-700',attributes:{unit_of_measurement:'W',device_class:'power',friendly_name:'Battery power'}}
+   }};
+   ed.setConfig(structuredClone(window.upfcTest.staleConfig));
+ });
  await page.mouse.move(old.x+old.width/2+75,old.y+old.height/2+50,{steps:8});
  await page.waitForTimeout(160);
  const whileDrag=await route.getAttribute('d');
  assert.notEqual(whileDrag,beforeWire,'connection path must follow node BEFORE pointerup');
  await page.mouse.up();
  await page.waitForTimeout(160);
+ await page.evaluate(()=>{
+   const ed=window.upfcTest.editor;
+   // Real HA may replay a stale pre-drag config AFTER config-changed.
+   ed.setConfig(structuredClone(window.upfcTest.staleConfig));
+   ed.hass={states:{
+     'sensor.battery_power':{state:'600',attributes:{unit_of_measurement:'W',device_class:'power',friendly_name:'Battery power'}}
+   }};
+ });
  assert.notEqual(await route.getAttribute('d'),beforeWire,'connection path must persist after pointerup');
  const afterConfig=await page.evaluate(()=>window.upfcTest.editor.config.diagram.nodes.find(n=>n.id==='gen').x);
  assert.notEqual(afterConfig,beforeConfig,'real diagram coordinates must commit on pointerup');
@@ -190,10 +211,12 @@ try{
  assert.equal(await workspace.isVisible(),false);
  await editor.getByRole('button',{name:/Full-screen editor/}).click();
  await page.waitForFunction(()=>!!window.upfcTest.editor.shadowRoot
-    ?.querySelector('.upfc-fullscreen-workspace')?.matches(':fullscreen'));
+    ?.querySelector('.upfc-fullscreen-workspace')?.matches(':popover-open'));
+ assert.equal(await page.evaluate(()=>document.fullscreenElement),null,
+   'reopening must not activate browser fullscreen');
  assert.equal(await workspace.isVisible(),true,'can reopen actual browser fullscreen without moving equipment');
  assert.deepEqual(errors,[],'page console has no unhandled JS errors');
- console.log('BROWSER E2E PASS: select, repeated drag, inline property edit, lost-pointerup recovery, cross-node drag, delete, sensor select, reopen');
+ console.log('BROWSER E2E PASS: in-tab popover, HA hass churn and stale echoes during drag, routes, repeat drag, inspector, delete, sensor search, reopen');
 }catch(err){
  console.error('BROWSER E2E FAILURE:',err);
  if(typeof page!=='undefined') {
