@@ -42,57 +42,49 @@ input,textarea{width:100%}
 .upfc-primarybar select{flex:1 1 160px;min-width:100px}
 .upfc-palette{margin:8px 2px;border:1px solid var(--divider-color,#526371);border-radius:8px;padding:8px}
 .upfc-palette summary{cursor:pointer;font-size:13px}
-.upfc-dialog{position:fixed;box-sizing:border-box;inset:12px;width:auto;max-width:none;
-  height:auto;max-height:none;margin:0;padding:14px;z-index:10000;
-  overflow:auto;overscroll-behavior:contain;pointer-events:auto;
-  border:1px solid var(--divider-color,#546776);border-radius:12px;
-  background:var(--ha-card-background,var(--card-background-color,#192630));color:var(--primary-text-color,#eee)}
-.upfc-dialog[hidden],.upfc-compact-workspace[hidden]{display:none!important}
-.upfc-dialog{box-shadow:0 0 0 100vmax rgba(0,0,0,.82),0 16px 48px rgba(0,0,0,.5)}
+/* Popover renders IN the current browser tab's top layer above HA's dialog.
+ * It is never browser / operating-system fullscreen. */
+.upfc-dialog{box-sizing:border-box;border:1px solid var(--divider-color,#546776);
+  border-radius:10px;background:var(--ha-card-background,var(--card-background-color,#192630));
+  color:var(--primary-text-color,#eee);padding:12px 16px;overscroll-behavior:contain;
+  box-shadow:0 16px 54px rgba(0,0,0,.65)}
+.upfc-dialog:not(:popover-open),.upfc-compact-workspace[hidden]{display:none!important}
+.upfc-fullscreen-workspace:popover-open{
+  position:fixed!important;inset:0!important;display:flex!important;flex-direction:column;
+  box-sizing:border-box;width:100vw!important;height:100dvh!important;
+  min-width:0!important;min-height:0!important;max-width:none!important;
+  max-height:none!important;margin:0!important;
+  border:0!important;border-radius:0!important;
+  overflow:hidden!important;padding:12px 16px!important;
+}
+.upfc-fullscreen-workspace:popover-open .upfc-toolbar{flex:0 0 auto}
+.upfc-fullscreen-workspace:popover-open .upfc-layout{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(310px,24vw);
+  grid-template-rows:minmax(0,1fr);flex:1 1 auto;min-height:0;min-width:0;
+  overflow:hidden;align-items:stretch;gap:12px
+}
+.upfc-fullscreen-workspace:popover-open .upfc-canvas-shell{
+  min-height:0;height:100%;min-width:0;overflow:hidden
+}
+.upfc-fullscreen-workspace:popover-open .upfc-canvas{
+  box-sizing:border-box;width:100%;height:100%!important;min-height:0!important;
+  max-height:none!important
+}
+.upfc-fullscreen-workspace:popover-open .upfc-inspector{
+  min-height:0;max-height:none;height:100%;overflow-y:auto
+}
+.upfc-fullscreen-workspace:popover-open .upfc-palette,
+.upfc-fullscreen-workspace:popover-open .upfc-subtle{flex-shrink:0}
 .upfc-dialog button,.upfc-dialog select,.upfc-dialog input{pointer-events:auto}
 .upfc-node{touch-action:none}
 .upfc-node.selected{filter:drop-shadow(0 0 4px var(--primary-color,#03a9f4))}
-.upfc-dialog .upfc-layout{grid-template-columns:minmax(0,1fr) 315px;align-items:start}
-.upfc-dialog .upfc-canvas{width:100%;height:calc(100dvh - 275px);min-height:450px;max-height:none}
-.upfc-dialog .upfc-canvas-shell{min-height:450px}
-.upfc-dialog .upfc-inspector{max-height:calc(100dvh - 250px);overflow:auto}
+@media(max-width:850px){
+  .upfc-fullscreen-workspace:popover-open .upfc-layout{
+    grid-template-columns:minmax(0,1fr) minmax(220px,34vw)
+  }
+}
 .upfc-edge.selected path:not(.upfc-edge-hit){filter:drop-shadow(0 0 3px var(--primary-color,#03a9f4))}
 
-
-/* Browser Fullscreen API moves this surface into the top layer, above HA's
- * card-configuration modal. CSS fixed alone was clipped by the HA dialog. */
-.upfc-fullscreen-workspace:fullscreen{
-  box-sizing:border-box;inset:0!important;margin:0!important;
-  width:100vw!important;height:100dvh!important;max-width:none!important;
-  max-height:none!important;padding:12px 16px!important;
-  border:0!important;border-radius:0!important;
-  overflow:hidden!important;background:var(--ha-card-background,var(--card-background-color,#17232d));
-  color:var(--primary-text-color,#eee);display:flex!important;
-  flex-direction:column;gap:4px;
-}
-.upfc-fullscreen-workspace:fullscreen .upfc-layout{
-  display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,25vw);
-  grid-template-rows:minmax(0,1fr);flex:1 1 auto;min-height:0;
-  overflow:hidden;align-items:stretch;
-}
-.upfc-fullscreen-workspace:fullscreen .upfc-canvas-shell{
-  min-width:0;min-height:0;height:100%;overflow:hidden;
-}
-.upfc-fullscreen-workspace:fullscreen .upfc-canvas{
-  box-sizing:border-box;width:100%;height:100%!important;min-height:0!important;
-  max-height:none!important;object-fit:contain;
-}
-.upfc-fullscreen-workspace:fullscreen .upfc-inspector{
-  min-height:0;max-height:none;height:100%;overflow-y:auto;
-}
-.upfc-fullscreen-workspace:fullscreen .upfc-toolbar{flex-shrink:0}
-.upfc-fullscreen-workspace:fullscreen .upfc-palette{flex-shrink:0}
-.upfc-fullscreen-workspace:fullscreen .upfc-subtle{
-  flex-shrink:0;margin:5px 0;
-}
-@media(max-width:850px){
-  .upfc-fullscreen-workspace:fullscreen .upfc-layout{grid-template-columns:minmax(0,1fr) minmax(220px,33vw);}
-}
 
 .upfc-entity-picker{padding:5px 0 8px;border-bottom:1px dotted var(--divider-color,#5b6770)}
 .upfc-entity-search{margin-top:5px;width:100%;border-color:var(--primary-color,#189ad4)}
