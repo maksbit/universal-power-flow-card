@@ -117,6 +117,17 @@ try{
    }};
    ed.setConfig(structuredClone(window.upfcTest.staleConfig));
  });
+ // A high-frequency HA state stream arrives during an active pointer gesture.
+ for(let i=0;i<12;i++){
+   await page.evaluate(index=>{
+     const ed=window.upfcTest.editor;
+     ed.hass={states:{
+       'sensor.battery_power':{state:String(1000+index),
+         attributes:{device_class:'power',unit_of_measurement:'W',friendly_name:'Battery power'}}
+     }};
+     ed.setConfig(structuredClone(window.upfcTest.staleConfig));
+   },i);
+ }
  await page.mouse.move(old.x+old.width/2+75,old.y+old.height/2+50,{steps:8});
  await page.waitForTimeout(160);
  const whileDrag=await route.getAttribute('d');
