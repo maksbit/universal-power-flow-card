@@ -21,6 +21,17 @@ title: Telecom power infrastructure
 
 The card initially shows the **example topology** with no animated values; telemetry is not fabricated. Open the visual editor to bind each edge to its power sensor.
 
+## v0.2.5 — in-page maximized workspace and HA-safe interaction
+
+- **Full-screen editor** now uses the browser's **HTML Popover API** to occupy the entire **webpage viewport**, above Home Assistant's configuration dialog. It does **not** call `requestFullscreen()` and does not change the browser's own fullscreen state, toolbar or desktop layout.
+- The canvas and inspector occupy separate resizable viewport columns; only the inspector scrolls.
+- During device dragging, **pointer capture is held by the stable SVG canvas**, rather than a potentially replaced equipment node.
+- Frequent Home Assistant sensor updates no longer trigger Lit rendering while a pointer drag is active, avoiding DOM replacements beneath the mouse.
+- A stale HA `setConfig` echo cannot replace device positions during dragging or discard unsaved edits, in either compact or expanded mode.
+- Chromium checks require in-tab Popover mode, confirm `document.fullscreenElement === null`, maintain live connections, stress telemetry and stale config updates while moving, then test repeat drag, inspector edits, deletion and reopening.
+
+**Known limitation:** The Playwright harness simulates Home Assistant's card settings dialog; it cannot fully substitute for hands-on acceptance against the user's actual HA frontend. Retain a JSON export of your diagram before testing new releases.
+
 ## v0.2.4 — connected drag and real fullscreen
 
 - Equipment and power-flow connections now move **together during the drag gesture**. The in-memory node position and obstacle-aware SVG path geometry update together while preserving the existing SVG DOM; nothing is disconnected from its port.
