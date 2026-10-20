@@ -106,6 +106,9 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private startDrag(next:Drag):void{
     this.endDrag();
     this.drag=next;
+    // Capture on stable SVG root, not on a node that Lit may replace.
+    // The pointerup stays delivered even if the cursor leaves the canvas.
+    try{this.svgEl?.setPointerCapture(next.pointerId??-1);}catch{/* fallback: window listeners */}
     window.addEventListener('pointermove',this.moveListener,{capture:true});
     window.addEventListener('pointerup',this.upListener,{capture:true});
     window.addEventListener('pointercancel',this.upListener,{capture:true});
@@ -120,6 +123,11 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
       if(node){node.x=previous.origin.x;node.y=previous.origin.y;}
     }
     if(previous?.nodeElement?.isConnected)previous.nodeElement.removeAttribute('transform');
+    try{
+      const root=this.svgEl;
+      if(previous?.pointerId!==undefined&&root?.hasPointerCapture(previous.pointerId))
+        root.releasePointerCapture(previous.pointerId);
+    }catch{/* DOM may already have detached */}
     this.drag=undefined;
     window.removeEventListener('pointermove',this.moveListener,true);
     window.removeEventListener('pointerup',this.upListener,true);
@@ -184,10 +192,13 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   public setConfig(c:CardConfig):void{
     // HA replays the config we just emitted. Do not destroy the active picker,
     // drag position, search focus, selected node or full-screen dialog.
+    // Host HA can feed config back in the middle of a pointer gesture.
+    // Never replace diagram nodes while a gesture owns their SVG elements.
+    if(this.drag)return;
     const incomingSignature=JSON.stringify(c);
     if(incomingSignature===this.lastEmittedSignature||incomingSignature===this.lastInboundSignature)return;
     // Prevent obsolete HA config echoes from replacing in-progress local edits.
-    if(this.expanded&&this.localEditsPending)return;
+    if(this.localEditsPending)return;
     this.lastInboundSignature=incomingSignature;
     try{
       const original=c.diagram?parseDiagram(c.diagram):demoDiagram();
