@@ -1,4 +1,4 @@
-import {LitElement,html,nothing} from 'lit';
+import {LitElement,html,nothing,PropertyValues} from 'lit';
 import {customElement,property,state} from 'lit/decorators.js';
 import {HomeAssistant,LovelaceCardEditor} from 'custom-card-helpers';
 import {CardConfig,PowerNode,PowerConnection,PowerPort,PowerDiagram,
@@ -45,12 +45,10 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private readonly keyboardListener=(ev:KeyboardEvent)=>this.onKeyDown(ev);
   private readonly blurListener=()=>this.endDrag();
   private readonly visibilityListener=()=>{if(document.visibilityState==='hidden')this.endDrag();};
-  private readonly fullscreenListener=()=>{
-    const surface=this.renderRoot.querySelector<HTMLElement>('.upfc-fullscreen-workspace');
-    if(this.expanded&&surface&&!surface.matches(':fullscreen')){
-      this.endDrag();
-      this.expanded=false;
-      this.requestUpdate();
+  private readonly popoverListener=(ev:Event)=>{
+    const element=ev.target as HTMLElement|null;
+    if(this.expanded&&element?.matches('.upfc-fullscreen-workspace')&&!element.matches(':popover-open')){
+      this.endDrag();this.expanded=false;this.requestUpdate();
     }
   };
   public connectedCallback():void{
@@ -59,7 +57,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     window.addEventListener('pointerdown',this.recoveryListener,{capture:true});
     window.addEventListener('blur',this.blurListener);
     document.addEventListener('visibilitychange',this.visibilityListener);
-    document.addEventListener('fullscreenchange',this.fullscreenListener);
+    this.renderRoot.addEventListener('toggle',this.popoverListener,true);
   }
   public disconnectedCallback():void{
     super.disconnectedCallback();
@@ -67,7 +65,9 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     window.removeEventListener('pointerdown',this.recoveryListener,true);
     window.removeEventListener('blur',this.blurListener);
     document.removeEventListener('visibilitychange',this.visibilityListener);
-    document.removeEventListener('fullscreenchange',this.fullscreenListener);
+    this.renderRoot.removeEventListener('toggle',this.popoverListener,true);
+    const pane=this.renderRoot.querySelector<HTMLElement>('.upfc-fullscreen-workspace');
+    if(pane?.matches(':popover-open'))pane.hidePopover();
     this.endDrag();
   }
   private onKeyDown(ev:KeyboardEvent):void{
@@ -83,33 +83,25 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
   private openExpanded():void{
     this.endDrag();
     const surface=this.renderRoot.querySelector<HTMLElement>('.upfc-fullscreen-workspace');
-    if(!surface){this.notice='Fullscreen surface unavailable';this.requestUpdate();return;}
-    // A CSS position:fixed descendant is clipped by Home Assistant's own
-    // dialog/transform. The native Fullscreen API moves the editor into the
-    // browser top layer, independent of all HA modal bounds and stacking contexts.
-    surface.removeAttribute('hidden');
-    this.expanded=true;
-    this.notice='';
-    this.requestUpdate();
-    if(!surface.requestFullscreen){
-      this.expanded=false;
-      this.notice='Этот браузер не поддерживает полноэкранный редактор';
-      this.requestUpdate();
-      return;
+    if(!surface){this.notice='Рабочая область редактора недоступна';this.requestUpdate();return;}
+    // The HTML Popover API promotes the editor above Home Assistant's modal
+    // in the PAGE top layer, without changing the browser window or screen.
+    // Unlike a nested showModal(), manual popover does not install a second
+    // focus trap or inert the underlying HA configuration dialog.
+    if(typeof surface.showPopover!=='function'){
+      this.notice='Для большого редактора требуется браузер с поддержкой Popover API';
+      this.requestUpdate();return;
     }
-    void surface.requestFullscreen().catch((error:unknown)=>{
-      this.expanded=false;
-      this.notice='Полноэкранный режим заблокирован браузером: '+String(error);
-      this.requestUpdate();
-    });
+    this.expanded=true;this.notice='';
+    try{if(!surface.matches(':popover-open'))surface.showPopover();}
+    catch(error){this.expanded=false;this.notice='Не удалось открыть редактор: '+String(error);}
+    this.requestUpdate();
   }
   private closeExpanded():void{
     this.endDrag();
     const surface=this.renderRoot.querySelector<HTMLElement>('.upfc-fullscreen-workspace');
-    this.expanded=false;
-    this.localEditsPending=false;
-    this.requestUpdate();
-    if(surface?.matches(':fullscreen'))void document.exitFullscreen().catch(()=>{});
+    if(surface?.matches(':popover-open'))surface.hidePopover();
+    this.expanded=false;this.localEditsPending=false;this.requestUpdate();
   }
   private startDrag(next:Drag):void{
     this.endDrag();
@@ -226,6 +218,10 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
     this.dispatchEvent(new CustomEvent('config-changed',{
       detail:{config:next},bubbles:true,composed:true
     }));
+  }
+  /** Avoid tearing down a pressed SVG node when HA pushes new hass state. */
+  protected shouldUpdate(_changed:PropertyValues<this>):boolean{
+    return !this.drag;
   }
   private get svgEl():SVGSVGElement|null{
     return this.expanded?
@@ -706,7 +702,7 @@ export class UniversalPowerFlowEditor extends LitElement implements LovelaceCard
       <div class="upfc-compact-workspace" ?hidden=${this.expanded}>
         ${!this.expanded?this.renderWorkspace():nothing}
       </div>
-      <div class="upfc-dialog upfc-fullscreen-workspace" ?hidden=${!this.expanded}
+      <div class="upfc-dialog upfc-fullscreen-workspace" popover="manual"
         role="dialog" aria-modal="false" aria-label="Universal Power Flow Designer">
         ${this.expanded?html`
           <div class="upfc-toolbar">
