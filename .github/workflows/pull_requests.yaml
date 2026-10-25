@@ -43,7 +43,7 @@ jobs:
           test -s dist/universal-power-flow-card.js
           ! grep -q 'customElements.define("sunsynk-power-flow-card"' dist/universal-power-flow-card.js
       - name: Upload test bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: universal-power-flow-card-preview
           path: dist/universal-power-flow-card.js
